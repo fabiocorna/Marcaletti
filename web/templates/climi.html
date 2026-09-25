@@ -2,7 +2,8 @@
 {% block titolo %}Dati climatici{% endblock %}
 {% block corpo %}
 <h1>Dati climatici</h1>
-<p class="nota">Valori medi mensili UNI 10349-1 del comune (temperature in °C, irradiazione solare globale
+<p class="nota">Per i comuni lombardi i dati climatici si ricavano in automatico dall'Allegato H (capoluogo di provincia
+corretto per la quota): qui servono solo per comuni fuori regione o per dati diversi. Valori medi mensili UNI 10349-1 del comune (temperature in °C, irradiazione solare globale
 media giornaliera in MJ/m² per esposizione). Servono per il pre-calcolo; CENED usa i propri dati ufficiali.</p>
 {% if errore %}<p class="errore">{{ errore }}</p>{% endif %}
 {% if climi %}

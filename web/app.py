@@ -110,7 +110,7 @@ def elenco(request: Request):
 def nuovo_form(request: Request):
     u = utente(request)
     return pagina(request, "nuovo.html", u=u, climi=db.elenco_climi(u["id"]), epoche=EPOCHE,
-                  interventi=ETICHETTE_INTERVENTO, errore=None, v={})
+                  interventi=ETICHETTE_INTERVENTO, errore=None, v={}, nomi_comuni=sorted(comuni.tutti()))
 
 
 def _lati(form) -> dict:
@@ -128,9 +128,8 @@ async def nuovo(request: Request):
     form = await request.form()
     v = dict(form)
     try:
-        clima = db.leggi_clima(u["id"], form["comune"])
-        if clima is None:
-            raise ValueError(f"mancano i dati climatici di '{form['comune']}': inserirli in 'Dati climatici'")
+        clima = db.leggi_clima(u["id"], form["comune"])  # dati inseriti a mano: hanno la precedenza
+        quota = float(form["quota"].replace(",", ".")) if form.get("quota") else None
         dati = {
             "nome": form["nome"].strip() or "Nuovo progetto",
             "comune": form["comune"],
@@ -142,8 +141,14 @@ async def nuovo(request: Request):
             "superficie_utile": float(form["superficie_utile"].replace(",", ".")),
             "altezza_netta": float((form.get("altezza_netta") or "2.70").replace(",", ".")),
             "lati": _lati(form),
-            "clima": clima,
         }
+        if clima is not None:
+            dati["clima"] = clima
+        elif comuni.cerca(form["comune"]) is None:
+            raise ValueError(f"comune '{form['comune']}' non trovato tra i comuni lombardi: "
+                             "inserirne i dati climatici in 'Dati climatici'")
+        if quota is not None:
+            dati["quota"] = quota
         if form.get("lato_lungo"):
             dati["lato_lungo"] = form["lato_lungo"]
         if form.get("vetro") or form.get("telaio"):
@@ -158,7 +163,7 @@ async def nuovo(request: Request):
         da_dizionario(progetto)  # validazione
     except (ValueError, KeyError) as e:
         return pagina(request, "nuovo.html", u=u, climi=db.elenco_climi(u["id"]), epoche=EPOCHE,
-                      interventi=ETICHETTE_INTERVENTO, errore=str(e), v=v)
+                      interventi=ETICHETTE_INTERVENTO, errore=str(e), v=v, nomi_comuni=sorted(comuni.tutti()))
     pid = db.crea_progetto(u["id"], dati["nome"], a_toml(progetto), dati,
                            form.get("intervento", "esistente"))
     return RedirectResponse(f"/progetti/{pid}", status_code=303)

@@ -85,6 +85,19 @@ class TestWeb(unittest.TestCase):
             pid = db.crea_progetto(uid, "con predefinito", f.read(), None)
         self.assertEqual(self.c.get(f"/progetti/{pid}/import.xml").status_code, 200)
 
+    def test_nuovo_progetto_con_clima_automatico(self):
+        from cened import comuni
+        if not comuni.tutti():
+            self.skipTest("risorse/comuni_istat.json assente")
+        self._login()
+        r = self.c.post("/progetti/nuovo", data={
+            "nome": "Dalmine auto", "comune": "DALMINE", "quota": "207", "intervento": "esistente",
+            "anno_costruzione": "1990", "tipologia": "appartamento", "piano": "intermedio",
+            "superficie_utile": "70", "lato_S": "esterno", "lato_N": "esterno"}, follow_redirects=False)
+        self.assertEqual(r.status_code, 303, r.text[:300])
+        pag = self.c.get(r.headers["location"]).text
+        self.assertIn("Dati climatici Allegato H per DALMINE", pag)
+
     def test_toml_errato_mostra_errore(self):
         self._login()
         from web import db

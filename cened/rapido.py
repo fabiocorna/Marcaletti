@@ -237,11 +237,20 @@ def genera_progetto(r: dict) -> dict:
                      "area": round(su_piano, 2)})
 
     volume_lordo = a_lorda * h_lorda * n_piani
+    clima = r.get("clima")
+    if clima is None:  # dati climatici regionali (Allegato H) dal comune e dalla quota
+        from dataclasses import asdict
+        from .clima_lombardia import clima_comune
+        c = clima_comune(r["comune"], r.get("quota"))
+        clima = {k2: v for k2, v in asdict(c).items() if v is not None}
+        ipotesi.append(f"Dati climatici Allegato H per {c.comune} ({c.provincia}), quota "
+                       f"{r.get('quota', 'del capoluogo')} m" + ("" if r.get("quota") else
+                                                                  " — indicare la quota del comune"))
     progetto = {
         "progetto": {k2: v for k2, v in r.items()
                      if k2 in ("nome", "comune", "indirizzo", "foglio", "particella", "subalterno")}
         | {"anno_costruzione": anno, "tipologia": tipologia, "piano": piano},
-        "clima": r["clima"],
+        "clima": clima,
         "zona": {"nome": r.get("nome_zona", "Zona 1"), "destinazione": r.get("destinazione", "E.1(1)"),
                  "superficie_utile": su, "volume_lordo": round(volume_lordo, 2),
                  "altezza_netta": h_netta},

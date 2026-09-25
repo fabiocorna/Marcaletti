@@ -364,3 +364,35 @@ class TestVerifiche2026(unittest.TestCase):
         h = [x for x in verifica(self.prog, self.ris, "nuova") if x.grandezza == "H'_T"][0]
         self.assertEqual(h.limite, 0.75)  # S/V 0,27 < 0,4, zona E
         self.assertEqual(h.esito, "NON VERIFICATA")
+
+
+class TestClimaLombardia(unittest.TestCase):
+    def test_irradiazione_come_cened(self):
+        # valori calcolati da CENED+2.0 per una parete a gamma = 120° (Bergamo, lat 45°43')
+        from cened.clima_lombardia import irradiazione
+        from cened.dati_allegato1 import CAPOLUOGHI
+        b = CAPOLUOGHI["Bergamo"]
+        hb = [x / 3.6 for x in b["hb"]]
+        hd = [x / 3.6 for x in b["hd"]]
+        h = irradiazione(45 + 43 / 60, hb, hd, 90.0, 120.0)
+        self.assertAlmostEqual(h[0], 0.6443617691838124, places=4)
+        self.assertAlmostEqual(h[6], 3.5819559137433097, places=4)
+
+    def test_temperatura_corretta_per_quota(self):
+        # CENED per Brembate (BG, 173 m): gennaio 3,3573 °C
+        from cened.clima_lombardia import clima_comune
+        c = clima_comune("Brembate", quota=173, provincia_istat="016")
+        self.assertAlmostEqual(c.te[0], 3.3573, places=3)
+        self.assertEqual(c.provincia, "BG")
+        self.assertEqual(len(c.irradianza), 9)
+
+    def test_rapido_senza_clima(self):
+        from cened.progetto import da_dizionario
+        from cened.rapido import genera_progetto
+        from cened import comuni
+        if not comuni.tutti():
+            self.skipTest("risorse/comuni_istat.json assente")
+        dati = {k: v for k, v in TestRapido.BASE.items() if k != "clima"}
+        p = da_dizionario(genera_progetto({**dati, "comune": "Dalmine", "quota": 207}))
+        self.assertEqual(p.clima.provincia, "BG")
+        self.assertGreater(calcola(p).q_h_nd, 0)

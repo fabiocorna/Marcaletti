@@ -5,16 +5,14 @@
 <p class="nota">Pochi dati di sopralluogo: stratigrafie, serramenti, ponti termici e geometria vengono
 ricavati per epoca costruttiva e riportati nel registro ipotesi, da verificare e correggere.</p>
 {% if errore %}<p class="errore">{{ errore }}</p>{% endif %}
-{% if not climi %}<p class="errore">Nessun comune con dati climatici: <a href="/climi">inseriscili qui</a>.</p>{% endif %}
+
 <form method="post" class="modulo griglia">
   <fieldset>
     <legend>Identificazione</legend>
     <label>Nome progetto <input name="nome" value="{{ v.nome or '' }}" placeholder="Via Roma 10, int. 5" required></label>
-    <label>Comune
-      <select name="comune" required>
-        {% for c in climi %}<option {% if v.comune == c.comune %}selected{% endif %}>{{ c.comune }}</option>{% endfor %}
-      </select>
-    </label>
+    <label>Comune <input name="comune" list="comuni" value="{{ v.comune or '' }}" required autocomplete="off"></label>
+    <datalist id="comuni">{% for n in nomi_comuni %}<option value="{{ n }}">{% endfor %}{% for c in climi %}<option value="{{ c.comune }}">{% endfor %}</datalist>
+    <label>Quota s.l.m. del comune [m] <input name="quota" inputmode="decimal" value="{{ v.quota or '' }}" placeholder="per correggere la temperatura (Allegato H)"></label>
     <label>Tipo di intervento
       <select name="intervento">
         {% for k, e in interventi.items() %}<option value="{{ k }}" {% if v.intervento == k %}selected{% endif %}>{{ e }}</option>{% endfor %}
