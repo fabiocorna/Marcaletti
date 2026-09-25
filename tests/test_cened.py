@@ -396,3 +396,27 @@ class TestClimaLombardia(unittest.TestCase):
         p = da_dizionario(genera_progetto({**dati, "comune": "Dalmine", "quota": 207}))
         self.assertEqual(p.clima.provincia, "BG")
         self.assertGreater(calcola(p).q_h_nd, 0)
+
+
+class TestCalibrazioneCened(unittest.TestCase):
+    """Bilancio Allegato H contro i risultati di CENED+2.0 sugli export reali in esempi/ (se presenti)."""
+
+    def _casi(self):
+        import glob
+        from cened.importa_cened import leggi_zona
+        casi = {os.path.basename(f): leggi_zona(f) for f in glob.glob(os.path.join(QUI, "..", "esempi", "*.xml"))}
+        if not casi:
+            self.skipTest("nessun export reale in esempi/")
+        return casi
+
+    def test_h_t_e_ep_h_nd(self):
+        from cened.bilancio_h import calcola_h
+        for nome, (z, c, rif) in self._casi().items():
+            with self.subTest(caso=nome):
+                r = calcola_h(z, c)
+                if not rif.get("ep_h_nd"):
+                    continue
+                self.assertAlmostEqual(r.h_t, rif["h_t"][0], delta=0.05 * rif["h_t"][0])
+                ep = r.q_nh / z.superficie_utile
+                if rif["ep_h_nd"] > 20:  # sui fabbisogni molto bassi lo scarto relativo non è significativo
+                    self.assertAlmostEqual(ep, rif["ep_h_nd"], delta=0.05 * rif["ep_h_nd"])

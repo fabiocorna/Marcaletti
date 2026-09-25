@@ -5,6 +5,7 @@
     python -m cened scheda   progetto.toml [-o out.md]   # scheda di compilazione CENED+2.0
     python -m cened xml      progetto.toml --modello calcolo.xml -o import.xml
     python -m cened leggi    calcolo.xml [--json]        # analisi di un export CENED
+    python -m cened confronta calcolo.xml                # nostro bilancio (Allegato H) vs CENED
 """
 import argparse
 import sys
@@ -28,6 +29,7 @@ def main(argv=None):
     p = sub.add_parser("rapido"); p.add_argument("dati"); p.add_argument("-o", "--output", required=True)
     p.add_argument("--scheda"); p.add_argument("--modello"); p.add_argument("--xml")
     p = sub.add_parser("leggi"); p.add_argument("export"); p.add_argument("--json", action="store_true")
+    p = sub.add_parser("confronta"); p.add_argument("export")
     a = ap.parse_args(argv)
 
     if a.cmd == "leggi":
@@ -41,6 +43,20 @@ def main(argv=None):
 
     if a.cmd == "rapido":
         return _rapido(a)
+    if a.cmd == "confronta":
+        from .bilancio_h import calcola_h
+        from .importa_cened import leggi_zona
+        z, c, rif = leggi_zona(a.export)
+        r = calcola_h(z, c)
+        print(f"H_T  nostro {r.h_t:9.2f} W/K   CENED {rif['h_t'][0]:9.2f} W/K")
+        print("mese  giorni(n/C)   Q_H,nd nostro   Q_H,nd CENED")
+        for m in r.mesi:
+            if m.giorni or rif["giorni"][m.mese]:
+                print(f"{m.mese + 1:4}   {m.giorni:4.0f}/{rif['giorni'][m.mese]:4.0f}   {m.q_nh:12.1f}   {rif['q_nh'][m.mese]:12.1f}")
+        ep = r.q_nh / z.superficie_utile
+        print(f"EP_H,nd nostro {ep:.2f}  CENED {rif.get('ep_h_nd', 0):.2f} kWh/m²anno "
+              f"({ep / rif['ep_h_nd'] - 1:+.1%})" if rif.get("ep_h_nd") else "")
+        return 0
 
     try:
         prog = carica(a.progetto)
