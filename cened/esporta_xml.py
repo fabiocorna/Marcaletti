@@ -50,10 +50,14 @@ def _registra_namespace(template_path):
         ET.register_namespace(prefisso, uri)
 
 
+VERSO_DISPERSIONE_XSD = {"esterno": "esterno", "znc": "znc", "terreno": "terreno", "adiacente": "interno"}
+
+
 class _Generatore:
     def __init__(self, prog: Progetto, template_path: str):
         self.prog = prog
         self.avvisi: list[str] = []
+        self.ids: dict[tuple[str, str], str] = {}  # (servizio, id progetto) -> id intero XSD
         _registra_namespace(template_path)
         self.tree = ET.parse(template_path)
         self.root = self.tree.getroot()
@@ -67,6 +71,14 @@ class _Generatore:
         if r is None:
             raise ErroreModello(f"il modello non contiene '{percorso}': non è un calcolo.xml CENED+2.0?")
         return r
+
+    def _nuovo_id(self, tipo: str, chiave: str) -> str:
+        """Gli id CENED sono interi positivi (sd:positiveInt): si assegna il primo libero."""
+        if (tipo, chiave) not in self.ids:
+            usati = {int(e.get("id")) for e in self.root.iter() if (e.get("id") or "").isdigit()}
+            usati |= {int(v) for v in self.ids.values()}
+            self.ids[(tipo, chiave)] = str(max(usati, default=0) + 1)
+        return self.ids[(tipo, chiave)]
 
     def _set(self, el, attr, valore, contesto):
         """Imposta un attributo solo se il prototipo lo prevede (evita attributi inventati)."""
@@ -109,7 +121,7 @@ class _Generatore:
         self._svuota(serv, voci)
         for s in self.prog.strutture.values():
             e = copy.deepcopy(proto)
-            e.set("id", s.id)
+            e.set("id", self._nuovo_id("opache", s.id))
             i, o = e.find(f"{D}input"), e.find(f"{D}output")
             ctx = f"struttura {s.id}"
             self._set(i, "nome", s.nome, ctx)
@@ -137,7 +149,7 @@ class _Generatore:
         self._svuota(serv, voci)
         for s in self.prog.serramenti.values():
             e = copy.deepcopy(proto)
-            e.set("id", s.id)
+            e.set("id", self._nuovo_id("serramenti", s.id))
             i, o = e.find(f"{D}input"), e.find(f"{D}output")
             ctx = f"serramento {s.id}"
             self._set(i, "nome", s.nome, ctx)
@@ -161,7 +173,7 @@ class _Generatore:
         self._svuota(serv, voci)
         for p in self.prog.ponti.values():
             e = copy.deepcopy(proto)
-            e.set("id", p.id)
+            e.set("id", self._nuovo_id("ponti", p.id))
             i, o = e.find(f"{D}input"), e.find(f"{D}output")
             ctx = f"ponte {p.id}"
             self._set(i, "nome", p.nome, ctx)
@@ -185,7 +197,7 @@ class _Generatore:
         self._svuota(amb, voci)
         for z in self.prog.znc.values():
             e = copy.deepcopy(proto)
-            e.set("id", z.id)
+            e.set("id", self._nuovo_id("znc", z.id))
             self._set(e, "nome", z.nome, f"ZNC {z.id}")
             self._set_extra(e, z.extra, f"ZNC {z.id}")
             amb.append(e)
@@ -216,7 +228,7 @@ class _Generatore:
                 and "gamma" in voci[0].find(f"{D}input").attrib:
             for esp in sorted(mancanti):
                 e = copy.deepcopy(voci[0])
-                nuovo_id = f"IRR_{esp}"
+                nuovo_id = self._nuovo_id("irraggiamento", esp)
                 e.set("id", nuovo_id)
                 i = e.find(f"{D}input")
                 i.set("gamma", _fmt(float(AZIMUT.get(esp, 0))))
@@ -259,23 +271,18 @@ class _Generatore:
         for d in z.dispersioni:
             proto = proto_se if d.is_serramento else proto_op
             e = copy.deepcopy(proto)
-            e.set("id", d.id)
+            e.set("id", self._nuovo_id("dispersione", d.id))
             e.set("nome", d.nome)
             ctx = f"dispersione {d.id}"
+            e.set("verso", VERSO_DISPERSIONE_XSD["znc" if d.znc is not None else d.verso])
             if d.is_serramento:
-                e.set("rifSerramenti", d.elemento.id)
-                if "quantita" in e.attrib:
-                    e.set("quantita", str(d.quantita))
-                elif d.quantita != 1:
-                    self.avvisi.append(f"{ctx}: il modello non ha l'attributo quantità, "
-                                       f"verificare il numero di serramenti ({d.quantita})")
-                if "area" in e.attrib:
-                    e.set("area", _fmt(d.area))
+                e.set("rifSerramenti", self.ids[("serramenti", d.elemento.id)])
+                e.set("area", _fmt(d.area))  # area totale (n. serramenti x A_w): lo schema non ha la quantità
             else:
-                e.set("rifOpache", d.elemento.id)
+                e.set("rifOpache", self.ids[("opache", d.elemento.id)])
                 e.set("area", _fmt(d.area))
             if d.znc is not None:
-                e.set("rifAmbienteConfinante", d.znc.id)
+                e.set("rifAmbienteConfinante", self.ids[("znc", d.znc.id)])
             elif "rifAmbienteConfinante" in e.attrib:
                 del e.attrib["rifAmbienteConfinante"]
             if d.esposizione and "rifIrraggiamento" in e.attrib:
@@ -289,7 +296,7 @@ class _Generatore:
                                        "inserirli in CENED+2.0")
                     break
                 pt = copy.deepcopy(proto_pt)
-                pt.set("rifPonti", pa.ponte.id)
+                pt.set("rifPonti", self.ids[("ponti", pa.ponte.id)])
                 pt.set("lunghezza", _fmt(pa.lunghezza))
                 e.append(pt)
             cont.append(e)
@@ -317,8 +324,15 @@ class _Generatore:
 
 def genera_xml(prog: Progetto, template_path: str, output_path: str | None = None):
     """Restituisce (xml, avvisi). Se output_path è dato scrive anche il file."""
+    from .schema import valida
     g = _Generatore(prog, template_path)
     xml = g.genera()
+    errori = valida(xml)
+    if errori is None:
+        g.avvisi.append("validazione XSD non eseguita (servono lxml e risorse/SCHEMA_XSD)")
+    elif errori:
+        g.avvisi.append(f"XSD: {len(errori)} errori di validazione")
+        g.avvisi += [f"XSD {x}" for x in errori[:20]]
     if output_path:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(xml)

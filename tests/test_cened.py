@@ -113,22 +113,31 @@ class TestEsportaXml(unittest.TestCase):
 
     def test_libreria_strutture(self):
         op = self.root.findall(f".//{D}servizioOpache/{D}opache")
-        self.assertEqual({e.get("id") for e in op}, set(self.prog.strutture))
-        par = next(e for e in op if e.get("id") == "PAR_EST")
+        self.assertEqual(len(op), len(self.prog.strutture))
+        par = next(e for e in op if e.find(f"{D}input").get("nome").startswith("Muratura mattone"))
         self.assertAlmostEqual(float(par.find(f"{D}output").get("u")), 1.599, places=3)
         self.assertEqual(par.find(f"{D}input").get("versoDispersione"), "1")
 
     def test_dispersioni_e_riferimenti(self):
         disp = self.root.findall(f".//{D}zona/{D}dispersioni/{D}dispersione")
         self.assertEqual(len(disp), len(self.prog.zona.dispersioni))
+        ids = [e.get("id") for e in self.root.iter() if e.get("id")]
+        self.assertTrue(all(i.isdigit() and int(i) > 0 for i in ids), ids)  # sd:positiveInt
+        self.assertEqual(len(ids), len(set(ids)))
+        znc = self.root.find(f".//{D}zonaNonClimatizzata")
         scala = next(e for e in disp if e.get("nome") == "Parete vano scala")
-        self.assertEqual(scala.get("rifAmbienteConfinante"), "SCALA")
+        self.assertEqual(scala.get("rifAmbienteConfinante"), znc.get("id"))
+        self.assertEqual(scala.get("verso"), "znc")
         self.assertNotIn("rifIrraggiamento", scala.attrib)
         fin = next(e for e in disp if e.get("nome") == "Finestre Sud")
-        self.assertEqual(fin.get("quantita"), "2")
-        self.assertEqual(fin.get("rifIrraggiamento"), "IR1")  # S già nel modello
+        self.assertAlmostEqual(float(fin.get("area")), 2 * 1.2 * 1.5)
+        self.assertEqual(fin.get("rifIrraggiamento"), "14")  # S già nel modello
         nord = next(e for e in disp if e.get("nome") == "Parete Nord")
-        self.assertEqual(nord.get("rifIrraggiamento"), "IRR_N")  # creato
+        irr_n = nord.get("rifIrraggiamento")
+        self.assertNotEqual(irr_n, "14")
+        nuovo = [e for e in self.root.iter(f"{D}irraggiamento") if e.get("id") == irr_n][0]
+        self.assertEqual(nuovo.find(f"{D}input").get("gamma"), "180")
+        self.assertEqual(next(e for e in disp if e.get("nome").startswith("Pavimento")).get("verso"), "interno")
         self.assertFalse([a for a in self.avvisi if a.startswith("riferimento")], self.avvisi)
 
     def test_geometria(self):
@@ -234,3 +243,14 @@ class TestDinamicaGlaser(unittest.TestCase):
         from cened.igrotermia import glaser
         g = glaser(self._s(("mattone_pieno", 0.25)), self.TE, self.UR)
         self.assertFalse(g.muffa_ok)
+
+
+class TestSchema(unittest.TestCase):
+    def test_validazione_xsd(self):
+        from cened import schema
+        if not schema.disponibile():
+            self.skipTest("lxml o risorse/SCHEMA_XSD assenti")
+        with open(MODELLO, encoding="utf-8") as f:
+            errori = schema.valida(f.read())
+        self.assertTrue(errori)  # il modello sintetico è volutamente incompleto
+        self.assertIn("configurazioneCalcolo", errori[0])

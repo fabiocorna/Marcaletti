@@ -139,3 +139,27 @@ CENED+2.0 prevede esplicitamente l'import di XML **parziali** prodotti da softwa
 non autorizzati (*File > Importa file XML*): il certificatore completa i dati in CENED+2.0 e
 da lì calcola ed esporta il file firmato per il Catasto. È la strada adottata da
 `cened/esporta_xml.py`, che toglie blocchi calcolati e firma e lascia a CENED il calcolo.
+
+## 7. Schema XSD ufficiale (calcolo.xsd, datiCalcolo.xsd, struttureDati.xsd, servizi.xsd, licenza.xsd)
+
+Gli XSD stanno in `risorse/SCHEMA_XSD/` (non versionati). `cened/schema.py` valida con lxml.
+Punti chiave emersi:
+
+- **Tutti gli `id` e i riferimenti `rif*` sono interi positivi** (`sd:positiveInt`), unici.
+- `calcolo` = `datiInput` + (facoltativi) `valoriIntermedi`, `datiOutput`, `messaggi`, `hashImport`,
+  `hash`, `licenza`. L'hash/firma è un elemento previsto dallo schema, prodotto dal motore.
+- `certificazione` = `software`, `configurazioneCalcolo`, `dizionario`, `datiAnagrafici`,
+  `datiEdificio`, `campiApe` (in quest'ordine).
+- In ogni servizio del `dizionario` il blocco `output` è **facoltativo**: lo calcola il motore.
+- Strutture opache descrivibili in tre modi: `rifPrecalcolate` → `servizioPrecalcolate`
+  (`codiceStruttura` d'archivio CENED, es. MLP0101); strati `datiStrato` con `rifMateriali` →
+  `servizioMateriali` (`codiceMateriale` d'archivio); strati `datiStrato` con valori propri
+  (`lambda_i`, `rho_i`, `c_i`, `d_i` oppure `r_i`).
+- `dispersione`: `verso` enumerato (`esterno`, `terreno`, `zac`, `znc`, `ss`, `interno`); non esiste
+  una "quantità": per i serramenti si usa `area`.
+- Ponti termici utente: `custom="true"` + `psi_e_utente` / `psi_i_utente`.
+- `geometria` della zona richiede anche `superficieLorda` e `volumeNetto`.
+- `datiEdificio` richiede `provincia`, `comune` (codici ISTAT), `provinciaCatastale`,
+  `comuneCatastale`, `foglio`, `particella`, `centraliElettriche`.
+- Molti codici sono interi non enumerati nello schema (`coloreEsterno`, `tipoSchermatura`,
+  `tipoStrato`, `tipoZnc`, `destinazioneUso`, …): il significato va ricavato da export reali.
