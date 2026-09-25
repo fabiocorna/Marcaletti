@@ -132,3 +132,10 @@ dati_forniti.yaml  ──►  completamento con default tabellari  ──►  mo
 
 Ogni valore di default applicato viene riportato in un registro, così il certificatore sa
 esattamente cosa è stato ipotizzato e può giustificarlo nella relazione e nel sopralluogo.
+
+## 6. Aggiornamento: import da software non autorizzati
+
+CENED+2.0 prevede esplicitamente l'import di XML **parziali** prodotti da software commerciali
+non autorizzati (*File > Importa file XML*): il certificatore completa i dati in CENED+2.0 e
+da lì calcola ed esporta il file firmato per il Catasto. È la strada adottata da
+`cened/esporta_xml.py`, che toglie blocchi calcolati e firma e lascia a CENED il calcolo.

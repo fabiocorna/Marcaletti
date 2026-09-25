@@ -1,0 +1,162 @@
+# Progetto di ESEMPIO: appartamento a piano intermedio, due affacci (S e N) + vano scala.
+# I dati climatici qui sotto sono ILLUSTRATIVI: per un lavoro reale usare UNI 10349-1:2016
+# per il comune (CENED li ricava in automatico dal codice ISTAT).
+
+[progetto]
+nome = "Appartamento di esempio - piano 2"
+comune = "Milano"
+foglio = ""
+particella = ""
+subalterno = ""
+anno_costruzione = 1965
+
+[clima]
+comune = "Milano"
+provincia = "MI"
+zona_climatica = "E"
+gg = 2404
+te = [1.7, 4.2, 9.2, 14.0, 17.9, 22.5, 25.1, 24.1, 20.4, 14.0, 7.9, 3.1]
+
+[clima.irradianza]  # MJ/m2 medi giornalieri, valori illustrativi
+S    = [7.4, 9.9, 11.9, 11.9, 11.5, 11.3, 12.0, 12.9, 13.0, 10.6, 7.2, 6.3]
+N    = [1.6, 2.3, 3.4, 4.8, 6.5, 7.6, 7.3, 5.6, 3.9, 2.6, 1.7, 1.4]
+E    = [3.5, 5.6, 8.6, 11.0, 13.1, 14.2, 15.0, 13.5, 10.4, 6.6, 3.6, 2.9]
+O    = [3.5, 5.6, 8.6, 11.0, 13.1, 14.2, 15.0, 13.5, 10.4, 6.6, 3.6, 2.9]
+ORIZ = [4.0, 6.9, 11.3, 15.8, 19.4, 21.5, 22.5, 19.3, 14.4, 8.8, 4.6, 3.4]
+
+[zona]
+nome = "Appartamento"
+destinazione = "E.1(1)"
+superficie_utile = 80.0
+volume_lordo = 290.0
+altezza_netta = 2.95
+
+# ---------- strutture opache (strati dall'interno verso l'esterno) ----------
+[[strutture]]
+id = "PAR_EST"
+nome = "Muratura mattone pieno 30 cm intonacata"
+tipo = "parete"
+verso = "esterno"
+strati = [
+  { materiale = "intonaco_calce_cemento", spessore = 0.015 },
+  { materiale = "mattone_pieno", spessore = 0.30 },
+  { materiale = "intonaco_calce_cemento", spessore = 0.02 },
+]
+
+[[strutture]]
+id = "PAR_SCALA"
+nome = "Parete verso vano scala 25 cm"
+tipo = "parete"
+verso = "znc"
+strati = [
+  { materiale = "intonaco_calce_cemento", spessore = 0.015 },
+  { materiale = "mattone_pieno", spessore = 0.25 },
+  { materiale = "intonaco_calce_cemento", spessore = 0.015 },
+]
+
+[[strutture]]
+id = "PORTA_ING"
+nome = "Portoncino d'ingresso in legno"
+tipo = "porta"
+verso = "znc"
+u = 2.2
+
+[[strutture]]
+id = "SOL_INT"
+nome = "Solaio interpiano laterocemento"
+tipo = "pavimento"
+verso = "adiacente"
+strati = [
+  { materiale = "piastrelle_ceramica", spessore = 0.01 },
+  { materiale = "massetto_cementizio", spessore = 0.05 },
+  { materiale = "solaio_laterocemento_20_4" },
+  { materiale = "intonaco_calce_cemento", spessore = 0.015 },
+]
+
+# ---------- serramenti ----------
+[[serramenti]]
+id = "FIN_120"
+nome = "Finestra legno doppio vetro 120x150"
+larghezza = 1.20
+altezza = 1.50
+vetro = "doppio"
+telaio = "legno"
+
+[[serramenti]]
+id = "PF_90"
+nome = "Portafinestra legno doppio vetro 90x240"
+larghezza = 0.90
+altezza = 2.40
+vetro = "doppio"
+telaio = "legno"
+
+# ---------- ponti termici (psi da abaco / calcolo, riferiti alle dimensioni esterne) ----------
+[[ponti]]
+id = "PT_SOLAIO"
+nome = "Parete - solaio interpiano (non isolato)"
+psi = 0.60
+
+[[ponti]]
+id = "PT_SERR"
+nome = "Parete - serramento (spalle e davanzale)"
+psi = 0.25
+
+# ---------- zone non climatizzate ----------
+[[znc]]
+id = "SCALA"
+nome = "Vano scala condominiale"
+b_tr = 0.6
+cened_tipoZnc = 2
+
+# ---------- dispersioni ----------
+[[dispersioni]]
+nome = "Parete Sud"
+struttura = "PAR_EST"
+area = 24.5
+esposizione = "S"
+ponti = [{ ponte = "PT_SOLAIO", lunghezza = 10.0 }]
+
+[[dispersioni]]
+nome = "Finestre Sud"
+serramento = "FIN_120"
+quantita = 2
+esposizione = "S"
+ponti = [{ ponte = "PT_SERR", lunghezza = 10.8 }]
+
+[[dispersioni]]
+nome = "Portafinestra Sud"
+serramento = "PF_90"
+esposizione = "S"
+f_sh_ob = 0.8
+ponti = [{ ponte = "PT_SERR", lunghezza = 6.6 }]
+
+[[dispersioni]]
+nome = "Parete Nord"
+struttura = "PAR_EST"
+area = 26.0
+esposizione = "N"
+ponti = [{ ponte = "PT_SOLAIO", lunghezza = 10.0 }]
+
+[[dispersioni]]
+nome = "Finestre Nord"
+serramento = "FIN_120"
+quantita = 2
+esposizione = "N"
+ponti = [{ ponte = "PT_SERR", lunghezza = 10.8 }]
+
+[[dispersioni]]
+nome = "Parete vano scala"
+struttura = "PAR_SCALA"
+area = 16.0
+znc = "SCALA"
+
+[[dispersioni]]
+nome = "Porta d'ingresso"
+struttura = "PORTA_ING"
+area = 2.1
+znc = "SCALA"
+
+[[dispersioni]]
+nome = "Pavimento verso appartamento sottostante"
+struttura = "SOL_INT"
+area = 80.0

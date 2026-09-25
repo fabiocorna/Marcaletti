@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Modello SINTETICO per i test: ricalca la struttura di calcolo.xml di CENED+2.0
+     (vedi docs/ANALISI_XML_CENED.md) senza dati reali. -->
+<c:calcolo xmlns:c="http://www.cened.it/cenedplus2/calcolo" xmlns:d="http://www.cened.it/cenedplus2/datiCalcolo" xmlns:sd="http://www.cened.it/cenedplus2/struttureDati" xmlns:ns5="http://www.cened.it/cenedplus2/licenza">
+  <c:datiInput>
+    <d:certificazione>
+      <d:software nomeSoftware="CENED+2.0" versioneMotore="1.1.15"/>
+      <d:dizionario>
+        <d:servizioDatiClimatici><d:input comune="015146"/><d:output nome="Milano" zonaClimatica="E" gg="2404"/></d:servizioDatiClimatici>
+        <d:servizioOpache>
+          <d:opache id="OP1"><d:input nome="Vecchia" u="1.0" tipoStrutturaOpache="1" versoDispersione="1" spessore="0.3" k_i="50"/><d:output u="1.0"/></d:opache>
+        </d:servizioOpache>
+        <d:servizioSerramenti>
+          <d:serramenti id="SE1"><d:input nome="Vecchio" larghezza="1" altezza="1" u_g="3" u_f="2"/><d:output a_w="1" u_w="3" g_n="0.7"/></d:serramenti>
+        </d:servizioSerramenti>
+        <d:servizioPonti>
+          <d:ponti id="PT1"><d:input nome="Vecchio ponte"/><d:output psi_e="0.1"/></d:ponti>
+        </d:servizioPonti>
+        <d:servizioIrraggiamento>
+          <d:irraggiamento id="IR1"><d:input gamma="0.0" beta="90.0" latitudine="45.5"/><d:output f="1"/></d:irraggiamento>
+        </d:servizioIrraggiamento>
+        <d:servizioOmbre><d:ombre id="OM1"><d:input/><d:output f_sh="1"/></d:ombre></d:servizioOmbre>
+      </d:dizionario>
+      <d:datiAnagrafici/>
+      <d:datiEdificio comune="015146" numeroPiani="5">
+        <d:ambientiConfinanti>
+          <d:zonaNonClimatizzata id="ZNC1" nome="Scala" tipoZnc="2"/>
+        </d:ambientiConfinanti>
+        <d:subalterni>
+          <d:subalterno id="S1" periodoCostruzione="3" subalternoNumero="1">
+            <d:zone>
+              <d:zona nome="Zona 1" destinazioneUso="2" riscAttivo="true">
+                <d:geometria superficieUtile="50" volumeLordo="180" altezzaMediaNetta="2.7"/>
+                <d:dispersioni>
+                  <d:dispersione id="DI1" nome="P" rifOpache="OP1" area="10" rifIrraggiamento="IR1" rifOmbre="OM1">
+                    <d:ponteTermico rifPonti="PT1" lunghezza="3"/>
+                  </d:dispersione>
+                  <d:dispersione id="DI2" nome="F" rifSerramenti="SE1" quantita="1" rifIrraggiamento="IR1" rifOmbre="OM1"/>
+                </d:dispersioni>
+              </d:zona>
+            </d:zone>
+          </d:subalterno>
+        </d:subalterni>
+        <d:impianti/>
+      </d:datiEdificio>
+    </d:certificazione>
+  </c:datiInput>
+  <c:valoriIntermedi x="1"/>
+  <c:datiOutput classe="G"/>
+  <sd:messaggi><sd:messaggio nodo="x"/></sd:messaggi>
+  <ns5:licenza chiave="x"/>
+</c:calcolo>
+<!--FIRMA:QUM|xxxxxxxxxxxxxxxxxxxxxxxxxxx=-->
