@@ -66,12 +66,24 @@ class TestWeb(unittest.TestCase):
         self.assertTrue(re.search(r"EP<sub>H,nd</sub></span><b>[\d.,]+</b>", pag))
         self.assertIn("# Scheda di compilazione", self.c.get(url + "/scheda.md").text)
         self.assertIn("[zona]", self.c.get(url + "/progetto.toml").text)
-        self.assertEqual(self.c.get(url + "/import.xml").status_code, 400)
         with open(MODELLO, "rb") as f:
             self.c.post(url + "/modello", files={"file": ("calcolo.xml", f, "application/xml")})
         xml = self.c.get(url + "/import.xml")
         self.assertEqual(xml.status_code, 200)
         self.assertIn("<c:calcolo", xml.text)
+
+    def test_modello_predefinito(self):
+        self._login()
+        r = self.c.post("/impostazioni/modello", files={"file": ("x.xml", b"<a/>", "application/xml")})
+        self.assertIn("non è un calcolo.xml", r.text)
+        with open(MODELLO, "rb") as f:
+            self.c.post("/impostazioni/modello", files={"file": ("mio.xml", f, "application/xml")})
+        self.assertIn("mio.xml", self.c.get("/impostazioni").text)
+        from web import db
+        uid = db.utente_da_token(self.c.cookies.get("sessione"))["id"]
+        with open(os.path.join(os.path.dirname(__file__), "..", "progetti", "esempio_appartamento.toml")) as f:
+            pid = db.crea_progetto(uid, "con predefinito", f.read(), None)
+        self.assertEqual(self.c.get(f"/progetti/{pid}/import.xml").status_code, 200)
 
     def test_toml_errato_mostra_errore(self):
         self._login()

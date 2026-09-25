@@ -6,7 +6,7 @@
   <div class="bottoni">
     <a class="bottone" href="/progetti/{{ riga.id }}/scheda.md">Scheda CENED (.md)</a>
     <a class="bottone" href="/progetti/{{ riga.id }}/progetto.toml">Progetto (.toml)</a>
-    {% if riga.modello_xml %}<a class="bottone primario" href="/progetti/{{ riga.id }}/import.xml">XML per CENED</a>{% endif %}
+    {% if riga.modello_xml or modello_predefinito %}<a class="bottone primario" href="/progetti/{{ riga.id }}/import.xml">XML per CENED</a>{% endif %}
   </div>
 </div>
 <p class="nota">{{ interventi.get(riga.intervento, riga.intervento) }}</p>
@@ -95,7 +95,7 @@
 <form method="post" action="/progetti/{{ riga.id }}/modello" enctype="multipart/form-data" class="modulo in-linea">
   <input type="file" name="file" accept=".xml" required>
   <button>Carica calcolo.xml</button>
-  <span class="nota">{{ 'Modello caricato.' if riga.modello_xml else 'Nessun modello: serve un calcolo.xml esportato da CENED+2.0.' }}</span>
+  <span class="nota">{% if riga.modello_xml %}Modello specifico del progetto caricato.{% elif modello_predefinito %}Si usa il modello predefinito ({{ modello_predefinito.nome }}); qui puoi caricarne uno solo per questo progetto.{% else %}Nessun modello: caricane uno qui o in <a href="/impostazioni">Impostazioni</a>.{% endif %}</span>
 </form>
 
 <h2>Modifica avanzata</h2>

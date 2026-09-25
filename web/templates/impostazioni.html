@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block titolo %}Impostazioni{% endblock %}
+{% block corpo %}
+<h1>Impostazioni</h1>
+<h2>Modello CENED predefinito</h2>
+<p class="nota">Un <code>calcolo.xml</code> esportato da CENED+2.0 (un lavoro qualsiasi). L'export XML ne riusa
+la struttura e i codici validi e sostituisce involucro, geometria e dispersioni con quelli del progetto.
+Impianti e dati generali vanno verificati in CENED.</p>
+{% if errore %}<p class="errore">{{ errore }}</p>{% endif %}
+<p>{% if modello %}Modello attuale: <b>{{ modello.nome }}</b>{% else %}Nessun modello caricato.{% endif %}</p>
+<form method="post" action="/impostazioni/modello" enctype="multipart/form-data" class="modulo in-linea">
+  <input type="file" name="file" accept=".xml" required>
+  <button class="primario">Carica</button>
+</form>
+<h2>Validazione</h2>
+<p class="nota">Schema XSD ufficiale CENED: {{ 'disponibile, ogni export viene validato' if xsd else 'non disponibile (copiare gli XSD in risorse/SCHEMA_XSD)' }}.</p>
+{% endblock %}

@@ -15,6 +15,7 @@ from cened.progetto import da_dizionario
 from cened.rapido import EPOCHE, a_toml, genera_progetto
 from cened.scheda import genera_scheda
 from cened import comuni
+from cened.schema import disponibile as schema_disponibile
 from cened.dinamica import dinamica
 from cened.igrotermia import glaser
 from cened.verifiche import INTERVENTI, verifica
@@ -201,7 +202,8 @@ def dettaglio(request: Request, pid: int):
     riga = _carica(u, pid)
     prog, ris, ver, errore = _analizza(riga)
     return pagina(request, "progetto.html", u=u, riga=riga, prog=prog, ris=ris, ver=ver,
-                  errore=errore, interventi=ETICHETTE_INTERVENTO, analisi=_analisi_strutture(prog))
+                  errore=errore, interventi=ETICHETTE_INTERVENTO, analisi=_analisi_strutture(prog),
+                  modello_predefinito=db.leggi_modello(u["id"]))
 
 
 @app.post("/progetti/{pid}/toml")
@@ -245,28 +247,65 @@ def scarica_scheda(request: Request, pid: int):
                     headers={"Content-Disposition": _nome_file(riga, "md")})
 
 
+def _controlla_modello(contenuto: bytes) -> str | None:
+    """Errore se il file non è un calcolo.xml CENED+2.0 utilizzabile, altrimenti None."""
+    import xml.etree.ElementTree as ET
+    if len(contenuto) > 20 * 1024 * 1024:
+        return "file troppo grande (max 20 MB)"
+    try:
+        radice = ET.fromstring(contenuto)
+    except ET.ParseError as e:
+        return f"XML non leggibile: {e}"
+    if radice.tag != "{http://www.cened.it/cenedplus2/calcolo}calcolo":
+        return "non è un calcolo.xml esportato da CENED+2.0"
+    return None
+
+
 @app.post("/progetti/{pid}/modello")
 async def carica_modello(request: Request, pid: int, file: UploadFile):
     u = utente(request)
     _carica(u, pid)
     contenuto = await file.read()
-    if len(contenuto) > 20 * 1024 * 1024:
-        return PlainTextResponse("file troppo grande", status_code=413)
+    errore = _controlla_modello(contenuto)
+    if errore:
+        return PlainTextResponse(errore, status_code=400)
     db.aggiorna_progetto(u["id"], pid, modello_xml=contenuto)
     return RedirectResponse(f"/progetti/{pid}", status_code=303)
+
+
+@app.get("/impostazioni", response_class=HTMLResponse)
+def impostazioni(request: Request):
+    u = utente(request)
+    return pagina(request, "impostazioni.html", u=u, modello=db.leggi_modello(u["id"]), errore=None,
+                  xsd=schema_disponibile())
+
+
+@app.post("/impostazioni/modello", response_class=HTMLResponse)
+async def carica_modello_predefinito(request: Request, file: UploadFile):
+    u = utente(request)
+    contenuto = await file.read()
+    errore = _controlla_modello(contenuto)
+    if errore:
+        return pagina(request, "impostazioni.html", u=u, modello=db.leggi_modello(u["id"]),
+                      errore=errore, xsd=schema_disponibile())
+    db.salva_modello(u["id"], file.filename or "calcolo.xml", contenuto)
+    return RedirectResponse("/impostazioni", status_code=303)
 
 
 @app.get("/progetti/{pid}/import.xml")
 def scarica_xml(request: Request, pid: int):
     import tempfile
-    riga = _carica(utente(request), pid)
-    if not riga["modello_xml"]:
-        return PlainTextResponse("caricare prima un calcolo.xml di CENED come modello", status_code=400)
+    u = utente(request)
+    riga = _carica(u, pid)
+    modello = riga["modello_xml"] or (db.leggi_modello(u["id"]) or {"xml": None})["xml"]
+    if not modello:
+        return PlainTextResponse("caricare un calcolo.xml di CENED come modello (nel progetto o in "
+                                 "Impostazioni)", status_code=400)
     prog, _, _, errore = _analizza(riga)
     if errore:
         return PlainTextResponse(errore, status_code=400)
     with tempfile.NamedTemporaryFile(suffix=".xml") as t:
-        t.write(riga["modello_xml"])
+        t.write(modello)
         t.flush()
         try:
             xml, avvisi = genera_xml(prog, t.name)

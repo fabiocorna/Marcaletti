@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS progetti (
     dati_rapidi TEXT, progetto_toml TEXT NOT NULL, modello_xml BLOB,
     creato REAL NOT NULL, modificato REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS modelli (
+    utente_id INTEGER PRIMARY KEY REFERENCES utenti(id), nome TEXT NOT NULL, xml BLOB NOT NULL,
+    caricato REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS climi (
     id INTEGER PRIMARY KEY, utente_id INTEGER NOT NULL REFERENCES utenti(id),
     comune TEXT NOT NULL, dati TEXT NOT NULL, UNIQUE(utente_id, comune)
@@ -160,3 +164,16 @@ def salva_clima(utente_id: int, comune: str, dati: dict):
 def elimina_clima(utente_id: int, comune: str):
     with connessione() as con:
         con.execute("DELETE FROM climi WHERE utente_id = ? AND comune = ?", (utente_id, comune))
+
+
+# ---------------- modello CENED predefinito ----------------
+def salva_modello(utente_id: int, nome: str, xml: bytes):
+    with connessione() as con:
+        con.execute("INSERT INTO modelli VALUES (?, ?, ?, ?) ON CONFLICT(utente_id) DO UPDATE SET "
+                    "nome = excluded.nome, xml = excluded.xml, caricato = excluded.caricato",
+                    (utente_id, nome, xml, time.time()))
+
+
+def leggi_modello(utente_id: int):
+    with connessione() as con:
+        return con.execute("SELECT nome, xml, caricato FROM modelli WHERE utente_id = ?", (utente_id,)).fetchone()
