@@ -29,10 +29,15 @@ class Clima:
     gg: float | None = None
     codice_istat: str | None = None
     provincia: str | None = None
+    ur: list[float] | None = None  # umidità relativa esterna media mensile [0-1]
 
     def __post_init__(self):
         if len(self.te) != 12:
             raise ValueError("clima.te: servono 12 temperature mensili")
+        if self.ur is not None:
+            if len(self.ur) != 12:
+                raise ValueError("clima.ur: servono 12 valori mensili")
+            self.ur = [u / 100 if u > 1 else u for u in self.ur]  # ammessi anche valori in %
         for k, v in self.irradianza.items():
             if k not in ESPOSIZIONI:
                 raise ValueError(f"clima.irradianza: esposizione '{k}' non valida {ESPOSIZIONI}")

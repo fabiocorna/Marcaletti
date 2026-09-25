@@ -14,6 +14,8 @@ from cened.esporta_xml import ErroreModello, genera_xml
 from cened.progetto import da_dizionario
 from cened.rapido import EPOCHE, a_toml, genera_progetto
 from cened.scheda import genera_scheda
+from cened.dinamica import dinamica
+from cened.igrotermia import glaser
 from cened.verifiche import INTERVENTI, verifica
 from cened.modello import ESPOSIZIONI
 
@@ -177,13 +179,28 @@ def _analizza(riga):
         return None, None, [], f"{type(e).__name__}: {e}"
 
 
+def _analisi_strutture(prog):
+    """Per le strutture con stratigrafia: Y_ie/sfasamento e, se c'è l'UR esterna, Glaser."""
+    out = {}
+    if prog is None:
+        return out
+    for s in prog.strutture.values():
+        if not s.strati or s.verso == "adiacente":
+            continue
+        voce = {"din": dinamica(s)}
+        if prog.clima.ur and s.verso == "esterno":
+            voce["glaser"] = glaser(s, prog.clima.te, prog.clima.ur)
+        out[s.id] = voce
+    return out
+
+
 @app.get("/progetti/{pid}", response_class=HTMLResponse)
 def dettaglio(request: Request, pid: int):
     u = utente(request)
     riga = _carica(u, pid)
     prog, ris, ver, errore = _analizza(riga)
     return pagina(request, "progetto.html", u=u, riga=riga, prog=prog, ris=ris, ver=ver,
-                  errore=errore, interventi=ETICHETTE_INTERVENTO)
+                  errore=errore, interventi=ETICHETTE_INTERVENTO, analisi=_analisi_strutture(prog))
 
 
 @app.post("/progetti/{pid}/toml")
@@ -284,6 +301,8 @@ async def salva_clima(request: Request):
         dati = {"comune": comune, "provincia": form.get("provincia", "").strip().upper() or None,
                 "zona_climatica": form["zona_climatica"].strip().upper(),
                 "te": _serie(form["te"]), "irradianza": {}}
+        if form.get("ur", "").strip():
+            dati["ur"] = _serie(form["ur"])
         if form.get("gg"):
             dati["gg"] = float(form["gg"].replace(",", "."))
         for esp in ESPOSIZIONI:

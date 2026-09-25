@@ -53,6 +53,28 @@
   </tbody>
 </table></div>
 
+<h2>Comportamento dinamico e termoigrometrico</h2>
+<p class="nota">UNI EN ISO 13786 (Y<sub>ie</sub>, sfasamento) e UNI EN ISO 13788 (Glaser, classe di umidità 3).
+{% if not prog.clima.ur %}Per la verifica di Glaser inserire l'umidità relativa esterna nei <a href="/climi">dati climatici</a>.{% endif %}</p>
+<div class="scorri"><table class="tabella">
+  <thead><tr><th>Struttura</th><th class="num">Y<sub>ie</sub> [W/m²K]</th><th class="num">f<sub>a</sub></th><th class="num">Sfasamento [h]</th>
+    <th class="num">f<sub>Rsi</sub> / f<sub>Rsi,max</sub></th><th>Muffa</th><th class="num">Condensa max [g/m²]</th><th>Interstiziale</th></tr></thead>
+  <tbody>
+  {% for sid, a in analisi.items() %}
+  <tr><td>{{ prog.strutture[sid].nome }}</td>
+    <td class="num">{{ a.din.y_ie|num(3) }}</td><td class="num">{{ a.din.fattore_attenuazione|num(2) }}</td>
+    <td class="num">{{ a.din.sfasamento_h|num(1) }}</td>
+    {% if a.glaser %}
+    <td class="num">{{ a.glaser.f_rsi|num(3) }} / {{ a.glaser.f_rsi_max|num(3) }}</td>
+    <td><span class="esito {{ 'ok' if a.glaser.muffa_ok else 'ko' }}">{{ 'OK' if a.glaser.muffa_ok else 'RISCHIO (' ~ a.glaser.mese_critico ~ ')' }}</span></td>
+    <td class="num">{{ (a.glaser.accumulo_max * 1000)|num(0) }}</td>
+    <td><span class="esito {{ 'ok' if a.glaser.interstiziale_ok else 'ko' }}">{{ ('nessuna' if a.glaser.accumulo_max == 0 else 'evapora') if a.glaser.interstiziale_ok else 'NON evapora' }}</span></td>
+    {% else %}<td class="num">—</td><td>—</td><td class="num">—</td><td>—</td>{% endif %}
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+
 <h2>Fabbisogno mensile</h2>
 <div class="scorri"><table class="tabella">
   <thead><tr><th>Mese</th><th class="num">giorni</th><th class="num">θ<sub>e</sub></th><th class="num">Q<sub>tr</sub></th><th class="num">Q<sub>ve</sub></th><th class="num">Q<sub>sol</sub></th><th class="num">Q<sub>int</sub></th><th class="num">η</th><th class="num">Q<sub>H,nd</sub> [kWh]</th></tr></thead>

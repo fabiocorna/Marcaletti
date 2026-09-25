@@ -188,3 +188,49 @@ class TestRapido(unittest.TestCase):
     def test_lato_non_valido(self):
         with self.assertRaises(ValueError):
             self._prog(lati={"X": "esterno"})
+
+
+class TestDinamicaGlaser(unittest.TestCase):
+    TE = [1.7, 4.2, 9.2, 14.0, 17.9, 22.5, 25.1, 24.1, 20.4, 14.0, 7.9, 3.1]
+    UR = [0.85, 0.8, 0.75, 0.75, 0.75, 0.7, 0.7, 0.7, 0.75, 0.8, 0.85, 0.87]
+
+    def _s(self, *strati):
+        return StrutturaOpaca("X", "x", "parete", "esterno", [Strato(LIBRERIA[m], d) for m, d in strati])
+
+    def test_yie_strato_sottile_tende_a_u(self):
+        from cened.dinamica import dinamica
+        s = self._s(("lana_vetro", 0.03))
+        d = dinamica(s)
+        self.assertAlmostEqual(d.y_ie, s.u, delta=0.01 * s.u)
+        self.assertLess(d.sfasamento_h, 1.0)
+
+    def test_sfasamento_cresce_con_spessore(self):
+        from cened.dinamica import dinamica
+        sf = [dinamica(self._s(("mattone_pieno", d))).sfasamento_h for d in (0.1, 0.2, 0.3)]
+        self.assertTrue(sf[0] < sf[1] < sf[2], sf)
+        self.assertTrue(8.5 < sf[2] < 10.5, sf)  # ~9-10 h per 30 cm di mattone pieno
+
+    def test_p_sat(self):
+        from cened.igrotermia import p_sat, theta_da_p_sat
+        self.assertAlmostEqual(p_sat(20), 2337, delta=3)
+        self.assertAlmostEqual(p_sat(0), 610.5, delta=0.1)
+        for t in (-10, 0.5, 18):
+            self.assertAlmostEqual(theta_da_p_sat(p_sat(t)), t, places=6)
+
+    def test_cappotto_senza_condensa(self):
+        from cened.igrotermia import glaser
+        g = glaser(self._s(("intonaco_calce_cemento", 0.015), ("blocco_alveolato", 0.25), ("eps", 0.10),
+                           ("intonaco_calce_cemento", 0.01)), self.TE, self.UR)
+        self.assertTrue(g.muffa_ok)
+        self.assertEqual(g.accumulo_max, 0)
+
+    def test_isolamento_interno_senza_barriera_condensa(self):
+        from cened.igrotermia import glaser
+        g = glaser(self._s(("cartongesso", 0.0125), ("lana_roccia", 0.08), ("calcestruzzo_armato", 0.20)),
+                   self.TE, self.UR)
+        self.assertGreater(g.accumulo_max, 0.01)
+
+    def test_muro_non_isolato_rischio_muffa(self):
+        from cened.igrotermia import glaser
+        g = glaser(self._s(("mattone_pieno", 0.25)), self.TE, self.UR)
+        self.assertFalse(g.muffa_ok)

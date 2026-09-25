@@ -13,7 +13,8 @@ def _materiali(dati):
         lib[m["id"]] = Materiale(
             m.get("nome", m["id"]), lambda_=m.get("lambda"), rho=m.get("rho", 0.0),
             c=m.get("c", 1000.0), r=m.get("r"), spessore_fisso=m.get("spessore"),
-            isolante=m.get("isolante", False), fonte=m.get("fonte", "utente"))
+            isolante=m.get("isolante", False), fonte=m.get("fonte", "utente"),
+            mu=m.get("mu", 10.0))
     return lib
 
 
@@ -76,7 +77,7 @@ def da_dizionario(dati: dict) -> Progetto:
     c = dati["clima"]
     clima = Clima(comune=c["comune"], zona_climatica=c["zona_climatica"], te=c["te"],
                   irradianza=c.get("irradianza", {}), gg=c.get("gg"),
-                  codice_istat=c.get("codice_istat"), provincia=c.get("provincia"))
+                  codice_istat=c.get("codice_istat"), provincia=c.get("provincia"), ur=c.get("ur"))
 
     strutture = {s["id"]: _struttura(s, lib, ipotesi) for s in dati.get("strutture", [])}
     serramenti = {s["id"]: _serramento(s, ipotesi) for s in dati.get("serramenti", [])}

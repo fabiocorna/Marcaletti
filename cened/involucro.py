@@ -42,7 +42,7 @@ class Strato:
         return 0.0 if self.intercapedine else self.materiale.rho * self.materiale.c * self.spessore
 
 
-ARIA = Materiale("Intercapedine d'aria", lambda_=None, rho=1.2, c=1000)
+ARIA = Materiale("Intercapedine d'aria", lambda_=None, rho=1.2, c=1000, mu=1.0)
 
 
 @dataclass

@@ -26,6 +26,7 @@ media giornaliera in MJ/m² per esposizione). Servono per il pre-calcolo; CENED 
     <label>Gradi giorno (DPR 412/93) <input name="gg" inputmode="decimal"></label>
   </div>
   <label>Temperature medie mensili gen→dic <input name="te" placeholder="1,7 4,2 9,2 14,0 17,9 22,5 25,1 24,1 20,4 14,0 7,9 3,1" required></label>
+  <label>Umidità relativa esterna gen→dic [%] (per la verifica di Glaser) <input name="ur" placeholder="85 80 75 75 75 70 70 70 75 80 85 87"></label>
   {% for e in esposizioni %}
   <label>Irradiazione {{ e }} gen→dic [MJ/m²] <input name="irr_{{ e }}"></label>
   {% endfor %}

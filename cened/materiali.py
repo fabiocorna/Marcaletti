@@ -20,44 +20,45 @@ class Materiale:
     spessore_fisso: float | None = None
     isolante: bool = False
     fonte: str = "indicativo"
+    mu: float = 10.0  # fattore di resistenza al vapore [-] (UNI EN ISO 10456, indicativo)
 
 
-def _m(nome, lambda_, rho, c, isolante=False):
-    return Materiale(nome, lambda_=lambda_, rho=rho, c=c, isolante=isolante)
+def _m(nome, lambda_, rho, c, isolante=False, mu=10.0):
+    return Materiale(nome, lambda_=lambda_, rho=rho, c=c, isolante=isolante, mu=mu)
 
 
-def _r(nome, r, spessore, rho, c=840):
-    return Materiale(nome, r=r, spessore_fisso=spessore, rho=rho, c=c)
+def _r(nome, r, spessore, rho, c=840, mu=10.0):
+    return Materiale(nome, r=r, spessore_fisso=spessore, rho=rho, c=c, mu=mu)
 
 
 LIBRERIA: dict[str, Materiale] = {
     # intonaci e finiture
     "intonaco_calce_cemento": _m("Intonaco di calce e cemento", 0.90, 1800, 1000),
     "intonaco_gesso": _m("Intonaco di gesso", 0.40, 1000, 1000),
-    "cartongesso": _m("Lastra di cartongesso", 0.25, 900, 1000),
-    "piastrelle_ceramica": _m("Piastrelle in ceramica", 1.30, 2300, 840),
-    "parquet": _m("Parquet in legno", 0.18, 700, 1600),
-    "massetto_cementizio": _m("Massetto sabbia e cemento", 1.40, 2000, 1000),
+    "cartongesso": _m("Lastra di cartongesso", 0.25, 900, 1000, mu=8),
+    "piastrelle_ceramica": _m("Piastrelle in ceramica", 1.30, 2300, 840, mu=200),
+    "parquet": _m("Parquet in legno", 0.18, 700, 1600, mu=50),
+    "massetto_cementizio": _m("Massetto sabbia e cemento", 1.40, 2000, 1000, mu=30),
     "cls_alleggerito": _m("Calcestruzzo alleggerito (sottofondo)", 0.35, 800, 1000),
     # murature e strutture
     "mattone_pieno": _m("Mattone pieno", 0.72, 1800, 840),
-    "calcestruzzo_armato": _m("Calcestruzzo armato", 2.30, 2400, 1000),
-    "pietra_naturale": _m("Pietra naturale compatta", 2.30, 2500, 1000),
-    "legno_abete": _m("Legno di abete", 0.13, 450, 1600),
+    "calcestruzzo_armato": _m("Calcestruzzo armato", 2.30, 2400, 1000, mu=100),
+    "pietra_naturale": _m("Pietra naturale compatta", 2.30, 2500, 1000, mu=50),
+    "legno_abete": _m("Legno di abete", 0.13, 450, 1600, mu=50),
     "blocco_alveolato": _m("Blocco in laterizio alveolato (λ equivalente)", 0.25, 850, 840),
     "forato_8": _r("Laterizio forato 8 cm", 0.20, 0.08, 800),
     "forato_12": _r("Laterizio forato 12 cm", 0.31, 0.12, 800),
-    "solaio_laterocemento_20_4": _r("Solaio in laterocemento 20+4", 0.33, 0.24, 1200),
+    "solaio_laterocemento_20_4": _r("Solaio in laterocemento 20+4", 0.33, 0.24, 1200, mu=30),
     # isolanti
-    "eps": _m("Polistirene espanso (EPS)", 0.035, 20, 1450, True),
-    "eps_grafite": _m("EPS con grafite", 0.031, 20, 1450, True),
-    "xps": _m("Polistirene estruso (XPS)", 0.034, 35, 1450, True),
-    "pir": _m("Poliuretano espanso (PIR)", 0.024, 35, 1400, True),
-    "lana_roccia": _m("Lana di roccia", 0.038, 100, 1030, True),
-    "lana_vetro": _m("Lana di vetro", 0.040, 20, 1030, True),
-    "fibra_legno": _m("Fibra di legno", 0.040, 160, 2100, True),
+    "eps": _m("Polistirene espanso (EPS)", 0.035, 20, 1450, True, mu=60),
+    "eps_grafite": _m("EPS con grafite", 0.031, 20, 1450, True, mu=60),
+    "xps": _m("Polistirene estruso (XPS)", 0.034, 35, 1450, True, mu=150),
+    "pir": _m("Poliuretano espanso (PIR)", 0.024, 35, 1400, True, mu=60),
+    "lana_roccia": _m("Lana di roccia", 0.038, 100, 1030, True, mu=1),
+    "lana_vetro": _m("Lana di vetro", 0.040, 20, 1030, True, mu=1),
+    "fibra_legno": _m("Fibra di legno", 0.040, 160, 2100, True, mu=5),
     # impermeabilizzazioni
-    "guaina_bituminosa": _m("Guaina bituminosa", 0.17, 1100, 1000),
+    "guaina_bituminosa": _m("Guaina bituminosa", 0.17, 1100, 1000, mu=50000),
 }
 
 # Resistenza di intercapedini d'aria non ventilate (UNI EN ISO 6946, prospetto 8)
