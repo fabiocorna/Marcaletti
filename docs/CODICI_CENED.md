@@ -15,6 +15,7 @@ contesto è indicato "(dedotto)". Da integrare con altri export (pompe di calore
 | | 5 | porta / portoncino |
 | | 6 | cassonetto |
 | `versoDispersione` (= `versoDispersioneOpache`) | 1 | verso esterno |
+| | 2 | verso terreno (pavimento riferito da `servizioTerreno`) |
 | | 3 | verso zona non climatizzata (vano scala, box, vano tecnico) |
 | | 5 | verso altra zona/unità climatizzata (divisori, solai tra appartamenti) |
 | | 6 | partizione interna alla zona (tramezzi, contropareti) — conta per la capacità termica |
@@ -43,7 +44,11 @@ Materiali (`servizioMateriali/materiale`): `input codiceMateriale="MUR1022" cust
   `rifOmbre` (se verso esterno), nessun `verso`.
 - Serramenti: `verso="esterno"`, `rifSerramenti`, `rifIrraggiamento`, `rifOmbre`; l'area è quella
   del serramento (`a_w` in output del servizio).
-- Terreno: `rifTerreno` → `servizioTerreno` (UNI EN ISO 13370: `p`, `a`, `lambda_g`, `rifOpacheGf`, `w_w`…).
+- Terreno: `verso="terreno"`, `rifTerreno` → `servizioTerreno` (UNI EN ISO 13370): `tipoElemento`=1
+  pavimento su terreno, `p` perimetro esposto, `a` area, `lambda_g`=2.0, `rifOpacheGf` struttura del
+  pavimento, `r_gf` = R_si+R_f+R_se, `w_w` spessore muri [mm], `k_i_pav`, `tipoIsolamento`=1 (nessun
+  isolamento perimetrale). Verificato: `cened/terreno.py` riproduce `u_b` di CENED al 4° decimale.
+- Più serramenti uguali: una dispersione per ciascuno, tutte con lo stesso `rifSerramenti`, senza `area`.
 - Ponti: `<ponteTermico rifPonti lunghezza/>`; ponti utente `custom="true" psi_e_utente psi_i_utente`.
 
 ## Serramenti (`servizioSerramenti/serramenti/input`)

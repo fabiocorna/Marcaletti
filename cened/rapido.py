@@ -220,6 +220,11 @@ def genera_progetto(r: dict) -> dict:
         ponti.append({"id": "PT_PAV", "nome": "Parete - pavimento", "psi": PSI["pavimento"][k]})
         d = {"nome": f"Pavimento verso {sotto}", "struttura": "PAVIMENTO", "area": round(a_lorda, 2),
              "ponti": [{"ponte": "PT_PAV", "lunghezza": round(perim_est, 2)}]}
+        if sotto == "terreno":
+            d["perimetro"] = round(perim_est, 2)
+            d["spessore_muri"] = round(sum(x.get("spessore", 0) for x in PARETE_EST[ep]
+                                           if "spessore" in x), 3) or 0.30
+            ipotesi.append("Pavimento su terreno: U equivalente UNI EN ISO 13370 (λ terreno 2,0 W/mK)")
         if sotto == "cantina":
             znc.append({"id": "CANTINA", "nome": "Cantina", "b_tr": B_TR_CANTINA})
             d["znc"] = "CANTINA"

@@ -20,6 +20,8 @@ A0, TAU0 = 1.0, 15.0  # parametri del fattore di utilizzazione (metodo mensile)
 def b_tr(d: Dispersione) -> float:
     if d.znc is not None:
         return d.znc.b_tr
+    if d.u_terreno is not None:
+        return 1.0  # la U equivalente UNI EN ISO 13370 comprende già l'effetto del terreno
     return {"esterno": 1.0, "terreno": B_TERRENO, "adiacente": 0.0, "znc": 1.0}[d.verso]
 
 
@@ -83,7 +85,7 @@ def calcola(prog: Progetto) -> Risultati:
     for d in z.dispersioni:
         b = b_tr(d)
         e = d.elemento
-        u = e.u_w if d.is_serramento else e.u
+        u = e.u_w if d.is_serramento else (d.u_terreno or e.u)
         h_el = b * u * d.area
         h_pt = sum(b * p.ponte.psi * p.lunghezza for p in d.ponti)
         h_tr += h_el + h_pt

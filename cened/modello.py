@@ -86,6 +86,24 @@ class Dispersione:
     quantita: int = 1
     f_sh_ob: float = 1.0  # fattore di ombreggiatura da ostruzioni/aggetti
     ponti: list[PonteApplicato] = field(default_factory=list)
+    perimetro: float | None = None  # perimetro esposto, per pavimenti su terreno (UNI EN ISO 13370)
+    spessore_muri: float = 0.30  # spessore dei muri perimetrali w [m] (UNI EN ISO 13370)
+
+    @property
+    def u_terreno(self) -> float | None:
+        """U equivalente UNI EN ISO 13370 se è un pavimento su terreno con perimetro noto."""
+        if self.is_serramento or self.elemento.verso != "terreno" or not self.perimetro:
+            return None
+        from .terreno import u_pavimento_terreno
+        s = self.elemento
+        return u_pavimento_terreno(self.area, self.perimetro, self.r_tot_terreno, self.spessore_muri)
+
+    @property
+    def r_tot_terreno(self) -> float:
+        """R_si + R_f + R_se del pavimento su terreno (R_se = 0,04 per convenzione ISO 13370)."""
+        from .terreno import RSE_TERRENO
+        s = self.elemento
+        return s.r_totale - s.rse + RSE_TERRENO
 
     @property
     def is_serramento(self) -> bool:

@@ -32,7 +32,7 @@ C = "{%s}" % NS["c"]
 
 # Codici da export reali (docs/CODICI_CENED.md)
 TIPO_STRUTTURA_OPACHE = {"parete": "1", "pavimento": "2", "soffitto": "3", "copertura": "4", "porta": "5"}
-VERSO_DISPERSIONE = {"esterno": "1", "znc": "3", "adiacente": "5", "interno": "6"}
+VERSO_DISPERSIONE = {"esterno": "1", "terreno": "2", "znc": "3", "adiacente": "5", "interno": "6"}
 PREFISSO_CODICE = {"1": "PAR", "2": "PAV", "3": "SOF", "4": "COP", "5": "POR"}
 COLORE_DEFAULT = "2"  # medio
 ATTR_PRECALCOLATI_OPACHE = ("rifPrecalcolate", "u", "d", "k_i", "y_ie_precalcolata", "codiceSpessore")
@@ -116,13 +116,6 @@ class _Generatore:
     def _svuota(padre, voci):
         for v in voci:
             padre.remove(v)
-
-    def rimuovi_terreno(self):
-        """Il servizio terreno del modello riferisce strutture che vengono sostituite: si toglie."""
-        serv = self.diz.find(f"{D}servizioTerreno")
-        if serv is not None:
-            self.diz.remove(serv)
-            self.avvisi.append("dispersioni verso terreno (UNI EN ISO 13370) da inserire in CENED")
 
     def rimuovi_calcolati(self):
         for figlio in list(self.root):
@@ -242,45 +235,91 @@ class _Generatore:
             serv.append(e)
 
     def serramenti(self):
+        """Serramento singolo (doppio=false, gruppo di attributi "2") descritto per componenti:
+        U_g, U_t, A_g, A_t, l_g, ψ_g. Tipo di vetro, gas, chiusure e schermature restano quelli
+        del modello (segnalato), salvo override `cened_*` nel progetto."""
         serv, voci = self._servizio("servizioSerramenti", "serramenti")
         proto = voci[0]
         self._svuota(serv, voci)
-        for s in self.prog.serramenti.values():
+        for n, s in enumerate(self.prog.serramenti.values(), 1):
             e = copy.deepcopy(proto)
             e.set("id", self._nuovo_id("serramenti", s.id))
-            i, o = e.find(f"{D}input"), e.find(f"{D}output")
-            ctx = f"serramento {s.id}"
-            self._set(i, "nome", s.nome, ctx)
-            valori = {"a_w": s.a_w, "u_w": s.u_w, "g_n": s.g_n, "u_g": s.u_g, "u_f": s.u_f,
-                      "larghezza": s.larghezza, "altezza": s.altezza}
-            for el in (i, o):
-                if el is None:
-                    continue
-                for k, v in valori.items():
-                    if k in el.attrib:
-                        el.set(k, _fmt(v))
-            self._set(o, "u_w", s.u_w, ctx)
-            self._set_extra(i, s.extra, ctx)
+            o = e.find(f"{D}output")
+            if o is not None:
+                e.remove(o)  # lo ricalcola il motore
+            i = e.find(f"{D}input")
+            for a in list(i.attrib):
+                if a.startswith("rifPrecalcolate") or a.endswith("_1") or a in ("tipoVetro1", "tipoGas1",
+                                                                                 "tipoTelaio1"):
+                    del i.attrib[a]
+            i.set("nome", s.nome)
+            i.set("codice", f"SER{1000 + n}")
+            i.set("doppio", "false")
+            i.set("u_g_2", _fmt(s.u_g))
+            i.set("a_g_2", _fmt(s.a_g))
+            i.set("a_t_2", _fmt(s.a_f))
+            i.set("g_n", _fmt(s.g_n))
+            if s.u_w_imposta is not None:
+                i.set("u_w_2", _fmt(s.u_w_imposta))
+                for a in ("u_t_2", "l_g_2", "psi_g_2"):
+                    i.attrib.pop(a, None)
+            else:
+                i.attrib.pop("u_w_2", None)
+                i.set("tipoTelaio2", i.get("tipoTelaio2") or "2")
+                i.set("u_t_2", _fmt(s.u_f))
+                i.set("l_g_2", _fmt(s.l_g))
+                i.set("tipoDistanziatore2", i.get("tipoDistanziatore2") or "1")
+                i.set("psi_g_2", _fmt(s.psi_g))
+                i.set("epsilon_ne_2", i.get("epsilon_ne_2") or "0.837")
+            self._set_extra(i, s.extra, f"serramento {s.id}")
             serv.append(e)
+        self.avvisi.append("serramenti: tipo vetro/gas, chiusure oscuranti e schermature presi dal "
+                           "modello, da verificare in CENED")
+
+    def terreno(self):
+        """Servizio terreno (UNI EN ISO 13370) per i pavimenti su terreno con perimetro noto."""
+        vecchio = self.diz.find(f"{D}servizioTerreno")
+        proto = None
+        if vecchio is not None:
+            voci = vecchio.findall(f"{D}terreno")
+            proto = copy.deepcopy(voci[0]) if voci else None
+            self.diz.remove(vecchio)
+        pavimenti = [d for d in self.prog.zona.dispersioni if d.u_terreno is not None]
+        senza_perimetro = [d for d in self.prog.zona.dispersioni
+                           if not d.is_serramento and d.elemento.verso == "terreno" and d.u_terreno is None]
+        for d in senza_perimetro:
+            self.avvisi.append(f"dispersione {d.id}: pavimento su terreno senza perimetro esposto, "
+                               "da completare in CENED")
+        if not pavimenti:
+            return
+        serv = ET.Element(f"{D}servizioTerreno")
+        figli = list(self.diz)  # nell'XSD servizioTerreno segue servizioOpache
+        pos = next(i + 1 for i, f in enumerate(figli) if f.tag == f"{D}servizioOpache")
+        self.diz.insert(pos, serv)
+        for d in pavimenti:
+            e = ET.SubElement(serv, f"{D}terreno", {"id": self._nuovo_id("terreno", d.id)})
+            attr = {"nome": d.nome[:500], "codice": "", "tipoElemento": "1", "p": _fmt(d.perimetro),
+                    "a": _fmt(d.area), "lambda_g": "2.0",
+                    "rifOpacheGf": self.ids[("opache", d.elemento.id)], "r_gf": _fmt(d.r_tot_terreno, 6),
+                    "tipoIsolamento": "1", "flagPerLocale": "false",
+                    "w_w": _fmt(d.spessore_muri * 1000), "k_i_pav": _fmt(d.elemento.k_i, 4)}
+            if proto is not None:  # eventuali attributi aggiuntivi del modello non gestiti qui
+                for k, v in proto.find(f"{D}input").attrib.items():
+                    attr.setdefault(k, v)
+            ET.SubElement(e, f"{D}input", attr)
 
     def ponti(self):
+        """Ponti termici con ψ inserito dall'utente (custom=true, psi_e_utente/psi_i_utente)."""
         if not self.prog.ponti:
             return
         serv, voci = self._servizio("servizioPonti", "ponti")
-        proto = voci[0]
         self._svuota(serv, voci)
-        for p in self.prog.ponti.values():
-            e = copy.deepcopy(proto)
-            e.set("id", self._nuovo_id("ponti", p.id))
-            i, o = e.find(f"{D}input"), e.find(f"{D}output")
-            ctx = f"ponte {p.id}"
-            self._set(i, "nome", p.nome, ctx)
-            for el in (i, o):
-                if el is not None and "psi_e" in el.attrib:
-                    el.set("psi_e", _fmt(p.psi))
-            self._set(o, "psi_e", p.psi, ctx)
-            self._set_extra(i, p.extra, ctx)
-            serv.append(e)
+        for n, p in enumerate(self.prog.ponti.values(), 1):
+            e = ET.SubElement(serv, f"{D}ponti", {"id": self._nuovo_id("ponti", p.id)})
+            attr = {"nome": p.nome, "codice": f"PON{n}", "custom": "true",
+                    "psi_e_utente": _fmt(p.psi, 6), "psi_i_utente": _fmt(p.psi, 6)}
+            attr.update({k.removeprefix("cened_"): str(v) for k, v in p.extra.items()})
+            ET.SubElement(e, f"{D}input", attr)
 
     def zone_non_climatizzate(self):
         amb = self.edificio.find(f"{D}ambientiConfinanti")
@@ -422,46 +461,54 @@ class _Generatore:
         self._ombre_create = {}
 
         for d in z.dispersioni:
-            proto = proto_se if d.is_serramento else proto_op
-            e = copy.deepcopy(proto)
-            for attr in ("rifTerreno", "rifOpache", "rifSerramenti", "verso", "rifAmbienteConfinante",
-                         "rifIrraggiamento", "rifOmbre", "tipoAmbienteConfinante"):
-                e.attrib.pop(attr, None)
-            e.set("id", self._nuovo_id("dispersione", d.id))
-            e.set("nome", d.nome)
-            ctx = f"dispersione {d.id}"
-            if d.is_serramento:
-                e.set("verso", "znc" if d.znc is not None else "esterno")  # come negli export CENED
-                e.set("rifSerramenti", self.ids[("serramenti", d.elemento.id)])
-                e.set("area", _fmt(d.area))  # area totale (n. serramenti x A_w): lo schema non ha la quantità
+            copie = d.quantita if d.is_serramento else 1
+            for k in range(copie):
+                cont.append(self._dispersione(d, k, copie, proto_se if d.is_serramento else proto_op,
+                                              proto_pt, irr))
+
+    def _dispersione(self, d, k, copie, proto, proto_pt, irr):
+        """Una dispersione CENED; i serramenti multipli diventano una dispersione ciascuno."""
+        e = copy.deepcopy(proto)
+        for attr in ("rifTerreno", "rifOpache", "rifSerramenti", "verso", "rifAmbienteConfinante",
+                     "rifIrraggiamento", "rifOmbre", "tipoAmbienteConfinante", "area", "areaNetta"):
+            e.attrib.pop(attr, None)
+        e.set("id", self._nuovo_id("dispersione", f"{d.id}#{k}"))
+        e.set("nome", d.nome if copie == 1 else f"{d.nome} ({k + 1}/{copie})")
+        ctx = f"dispersione {d.id}"
+        if d.is_serramento:
+            e.set("verso", "znc" if d.znc is not None else "esterno")  # come negli export CENED
+            e.set("rifSerramenti", self.ids[("serramenti", d.elemento.id)])
+        elif d.u_terreno is not None:
+            e.set("verso", "terreno")
+            e.set("rifTerreno", self.ids[("terreno", d.id)])
+            e.set("area", _fmt(d.area))
+        else:
+            e.set("rifOpache", self.ids[("opache", d.elemento.id)])
+            e.set("area", _fmt(d.area))
+            e.set("areaNetta", _fmt(d.area))
+            if "colorazione" in e.attrib:
+                e.set("colorazione", str(d.elemento.extra.get("cened_coloreEsterno", COLORE_DEFAULT)))
+        if d.znc is not None:
+            e.set("rifAmbienteConfinante", self.ids[("znc", d.znc.id)])
+        if d.esposizione and d.znc is None and d.u_terreno is None:
+            if d.esposizione in irr:
+                e.set("rifIrraggiamento", irr[d.esposizione])
+                om = self._ombre(irr[d.esposizione], d.esposizione, d.is_serramento)
+                if om:
+                    e.set("rifOmbre", om)
             else:
-                e.set("rifOpache", self.ids[("opache", d.elemento.id)])
-                e.set("area", _fmt(d.area))
-                if "areaNetta" in e.attrib:
-                    e.set("areaNetta", _fmt(d.area))
-                if "colorazione" in e.attrib:
-                    colore = d.elemento.extra.get("cened_coloreEsterno", COLORE_DEFAULT)
-                    e.set("colorazione", str(colore))
-            if d.znc is not None:
-                e.set("rifAmbienteConfinante", self.ids[("znc", d.znc.id)])
-            if d.esposizione and d.znc is None:
-                if d.esposizione in irr:
-                    e.set("rifIrraggiamento", irr[d.esposizione])
-                    om = self._ombre(irr[d.esposizione], d.esposizione, d.is_serramento)
-                    if om:
-                        e.set("rifOmbre", om)
-                else:
-                    self.avvisi.append(f"{ctx}: esposizione {d.esposizione} da assegnare in CENED")
-            for pa in d.ponti:
-                if proto_pt is None:
-                    self.avvisi.append(f"{ctx}: il modello non contiene ponti termici, "
-                                       "inserirli in CENED+2.0")
-                    break
-                pt = copy.deepcopy(proto_pt)
-                pt.set("rifPonti", self.ids[("ponti", pa.ponte.id)])
-                pt.set("lunghezza", _fmt(pa.lunghezza))
-                e.append(pt)
-            cont.append(e)
+                self.avvisi.append(f"{ctx}: esposizione {d.esposizione} da assegnare in CENED")
+        for pa in d.ponti:
+            if proto_pt is None:
+                self.avvisi.append(f"{ctx}: il modello non contiene ponti termici, inserirli in CENED+2.0")
+                break
+            pt = copy.deepcopy(proto_pt)
+            for a in ("tipologiaPonteDm", "codiceTipologiaPonte"):
+                pt.attrib.pop(a, None)
+            pt.set("rifPonti", self.ids[("ponti", pa.ponte.id)])
+            pt.set("lunghezza", _fmt(pa.lunghezza / copie))
+            e.append(pt)
+        return e
 
     def verifica_riferimenti(self):
         ids = {e.get("id") for e in self.root.iter() if e.get("id")}
@@ -473,8 +520,8 @@ class _Generatore:
 
     def genera(self) -> str:
         self.rimuovi_calcolati()
-        self.rimuovi_terreno()
         self.strutture_opache()
+        self.terreno()
         self.serramenti()
         self.ponti()
         self.zone_non_climatizzate()

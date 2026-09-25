@@ -119,7 +119,7 @@ def da_dizionario(dati: dict) -> Progetto:
         pa = [PonteApplicato(ponti[p["ponte"]], p["lunghezza"]) for p in d.get("ponti", [])]
         zona.dispersioni.append(Dispersione(
             did, d.get("nome", el.nome), el, area, esp, z, d.get("quantita", 1),
-            d.get("f_sh_ob", 1.0), pa))
+            d.get("f_sh_ob", 1.0), pa, d.get("perimetro"), d.get("spessore_muri", 0.30)))
 
     return Progetto(nome=dati.get("progetto", {}).get("nome", "senza nome"), clima=clima,
                     zona=zona, strutture=strutture, serramenti=serramenti, ponti=ponti,

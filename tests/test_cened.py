@@ -134,7 +134,8 @@ class TestEsportaXml(unittest.TestCase):
 
     def test_dispersioni_e_riferimenti(self):
         disp = self.root.findall(f".//{D}zona/{D}dispersioni/{D}dispersione")
-        self.assertEqual(len(disp), len(self.prog.zona.dispersioni))
+        attese = sum(d.quantita if d.is_serramento else 1 for d in self.prog.zona.dispersioni)
+        self.assertEqual(len(disp), attese)  # una dispersione per ogni serramento, come in CENED
         ids = [e.get("id") for e in self.root.iter() if e.get("id")]
         self.assertTrue(all(i.isdigit() and int(i) > 0 for i in ids), ids)  # sd:positiveInt
         self.assertEqual(len(ids), len(set(ids)))
@@ -143,9 +144,15 @@ class TestEsportaXml(unittest.TestCase):
         self.assertEqual(scala.get("rifAmbienteConfinante"), znc.get("id"))
         self.assertIsNone(scala.get("verso"))  # le opache non hanno verso negli export CENED
         self.assertNotIn("rifIrraggiamento", scala.attrib)
-        fin = next(e for e in disp if e.get("nome") == "Finestre Sud")
-        self.assertAlmostEqual(float(fin.get("area")), 2 * 1.2 * 1.5)
+        fin = [e for e in disp if e.get("nome").startswith("Finestre Sud")]
+        self.assertEqual(len(fin), 2)
+        fin = fin[0]
+        self.assertIsNone(fin.get("area"))  # l'area la dà il servizio serramenti
         self.assertEqual(fin.get("verso"), "esterno")
+        self.assertAlmostEqual(float(fin.find(f"{D}ponteTermico").get("lunghezza")), 10.8 / 2)
+        ser = self.root.find(f".//{D}servizioSerramenti/{D}serramenti/{D}input")
+        self.assertEqual(ser.get("doppio"), "false")
+        self.assertAlmostEqual(float(ser.get("a_g_2")) + float(ser.get("a_t_2")), 1.8)
         self.assertEqual(fin.get("rifIrraggiamento"), "14")  # S già nel modello
         nord = next(e for e in disp if e.get("nome") == "Parete Nord")
         irr_n = nord.get("rifIrraggiamento")
@@ -279,9 +286,41 @@ class TestEsportaSuExportReali(unittest.TestCase):
         modelli = sorted(glob.glob(os.path.join(QUI, "..", "esempi", "*.xml")))
         if not modelli or not schema.disponibile():
             self.skipTest("nessun export reale o XSD assenti")
-        prog = carica(ESEMPIO)
+        import tomllib
+        from cened.progetto import da_dizionario
+        from cened.rapido import genera_progetto
+        with open(os.path.join(QUI, "..", "progetti", "rapido_esempio.toml"), "rb") as f:
+            rapido = tomllib.load(f)
+        progetti = {
+            "appartamento": carica(ESEMPIO),
+            "piano terra su terreno": da_dizionario(genera_progetto({**rapido, "piano": "terra"})),
+            "villetta su cantina": da_dizionario(genera_progetto(
+                {**rapido, "tipologia": "villetta", "numero_piani": 2, "sotto": "cantina",
+                 "lati": {"S": "esterno", "N": "esterno", "E": "esterno", "O": "esterno"}})),
+        }
         for m in modelli:
-            with self.subTest(modello=os.path.basename(m)):
-                xml, avvisi = genera_xml(prog, m)
-                self.assertEqual(schema.valida(xml), [])
-                self.assertFalse([a for a in avvisi if a.startswith("riferimento")], avvisi)
+            for nome, prog in progetti.items():
+                with self.subTest(modello=os.path.basename(m), progetto=nome):
+                    xml, avvisi = genera_xml(prog, m)
+                    self.assertEqual(schema.valida(xml), [])
+                    self.assertFalse([a for a in avvisi if a.startswith("riferimento")], avvisi)
+
+
+class TestTerreno(unittest.TestCase):
+    def test_come_cened(self):
+        from cened.terreno import u_pavimento_terreno
+        # caso reale: CENED u_b = 0,18149 con d_t = 8,720
+        self.assertAlmostEqual(u_pavimento_terreno(164.66, 65.451, 4.150228054429912, 0.42), 0.18149, places=4)
+
+    def test_pavimento_piccolo_disperde_di_piu(self):
+        from cened.terreno import u_pavimento_terreno
+        self.assertGreater(u_pavimento_terreno(50, 30, 0.5), u_pavimento_terreno(500, 90, 0.5))
+
+    def test_rapido_piano_terra_usa_13370(self):
+        from cened.progetto import da_dizionario
+        from cened.rapido import genera_progetto
+        dati = {**TestRapido.BASE, "piano": "terra", "sotto": "terreno"}
+        p = da_dizionario(genera_progetto(dati))
+        pav = next(d for d in p.zona.dispersioni if d.nome.startswith("Pavimento"))
+        self.assertIsNotNone(pav.u_terreno)
+        self.assertLess(pav.u_terreno, pav.elemento.u)
