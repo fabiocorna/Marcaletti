@@ -32,6 +32,7 @@ non tecnico, da valutare più avanti.
 - [x] Scheda di compilazione assistita.
 - [x] Generatore XML "a modello" (sperimentale, da validare con import reale).
 - [x] Lettore di export CENED.
+- [x] Input rapido: progetto completo da pochi dati (epoca, superficie, piano, lati, serramenti).
 
 ## 3. Cosa serve dal certificatore (bloccante per la validazione)
 
@@ -48,7 +49,22 @@ non tecnico, da valutare più avanti.
    in automatico e di leggere lo schema XSD eventualmente incluso nel pacchetto
    (solo a fini di interoperabilità, nel rispetto della licenza d'uso).
 
-## 4. Prossime fasi
+## 4. Obiettivo "APE in pochi minuti"
+
+Tempo che resta al certificatore, per fase del flusso:
+
+| Passo | Oggi | Obiettivo |
+|---|---|---|
+| Inserimento dati | input rapido (~5 min) | interfaccia guidata / da app al sopralluogo |
+| Involucro in CENED | import XML (da validare) | import XML senza correzioni |
+| Impianti in CENED | manuale, con la scheda | inclusi nell'XML (serve export reale con impianti) |
+| Anagrafica, catasto, motivazione | manuale | inclusi nell'XML |
+| Calcolo, deposito, APE | CENED+2.0 | CENED+2.0 (o motore integrato con convenzione ARIA) |
+
+Il salto decisivo è includere impianti e anagrafica nell'XML: dipende dagli export reali
+del punto 3.
+
+## 5. Prossime fasi
 
 - **Fase 2 — involucro completo**: pavimenti su terreno (UNI EN ISO 13370), abaco ponti
   termici (UNI EN ISO 14683 / abaco CENED), ombreggiamenti (aggetti, ostruzioni),

@@ -1,5 +1,6 @@
 """Riga di comando.
 
+    python -m cened rapido   dati.toml -o progetto.toml [--scheda s.md] [--modello calcolo.xml --xml out.xml]
     python -m cened calcola  progetto.toml               # U, pre-calcolo, riepilogo
     python -m cened scheda   progetto.toml [-o out.md]   # scheda di compilazione CENED+2.0
     python -m cened xml      progetto.toml --modello calcolo.xml -o import.xml
@@ -24,6 +25,8 @@ def main(argv=None):
     p = sub.add_parser("xml"); p.add_argument("progetto")
     p.add_argument("--modello", required=True, help="calcolo.xml esportato da CENED+2.0")
     p.add_argument("-o", "--output", required=True)
+    p = sub.add_parser("rapido"); p.add_argument("dati"); p.add_argument("-o", "--output", required=True)
+    p.add_argument("--scheda"); p.add_argument("--modello"); p.add_argument("--xml")
     p = sub.add_parser("leggi"); p.add_argument("export"); p.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
 
@@ -35,6 +38,9 @@ def main(argv=None):
         else:
             leggi_export.stampa(dati)
         return 0
+
+    if a.cmd == "rapido":
+        return _rapido(a)
 
     try:
         prog = carica(a.progetto)
@@ -68,6 +74,42 @@ def main(argv=None):
             print(f"Modello non utilizzabile: {e}", file=sys.stderr)
             return 2
         print(f"XML scritto in {a.output} — da importare con CENED+2.0 > File > Importa file XML")
+        for av in avvisi:
+            print("  avviso:", av)
+    return 0
+
+
+def _rapido(a):
+    import tomllib
+    from .progetto import da_dizionario
+    from .rapido import a_toml, genera_progetto
+    with open(a.dati, "rb") as f:
+        dati = tomllib.load(f)
+    try:
+        progetto = genera_progetto(dati)
+        prog = da_dizionario(progetto)
+    except (ValueError, KeyError) as e:
+        print(f"Errore nei dati: {e}", file=sys.stderr)
+        return 2
+    with open(a.output, "w", encoding="utf-8") as f:
+        f.write(a_toml(progetto))
+    ris = calcola(prog)
+    z = prog.zona
+    print(f"Progetto completo scritto in {a.output} ({len(z.dispersioni)} dispersioni, "
+          f"{len(set(prog.ipotesi))} ipotesi da verificare)")
+    print(f"Pre-calcolo: EP_H,nd = {ris.ep_h_nd(z.superficie_utile):.1f} kWh/m2anno   "
+          f"H'_T = {ris.h_t_medio:.3f} W/m2K")
+    if a.scheda:
+        with open(a.scheda, "w", encoding="utf-8") as f:
+            f.write(genera_scheda(prog, ris))
+        print(f"Scheda scritta in {a.scheda}")
+    if a.modello and a.xml:
+        try:
+            _, avvisi = genera_xml(prog, a.modello, a.xml)
+        except ErroreModello as e:
+            print(f"Modello non utilizzabile: {e}", file=sys.stderr)
+            return 2
+        print(f"XML per CENED+2.0 scritto in {a.xml}")
         for av in avvisi:
             print("  avviso:", av)
     return 0

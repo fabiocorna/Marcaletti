@@ -1,0 +1,49 @@
+# INPUT RAPIDO: i dati minimi raccolti al sopralluogo.
+# python -m cened rapido progetti/rapido_esempio.toml -o progetto.toml --scheda scheda.md
+
+nome = "Via Roma 10, int. 5"
+comune = "Milano"
+anno_costruzione = 1972
+tipologia = "appartamento"   # appartamento | villetta
+piano = "intermedio"         # terra | intermedio | ultimo
+superficie_utile = 75.0
+altezza_netta = 2.80
+lato_lungo = "S"
+
+# cosa c'è su ogni lato: esterno | scala | adiacente (altra unità riscaldata)
+[lati]
+S = "esterno"
+N = "esterno"
+E = "adiacente"
+O = "scala"
+
+# facoltativo: se i serramenti sono stati sostituiti
+[serramenti]
+vetro = "doppio_basso_emissivo"
+telaio = "pvc"
+
+[impianto.riscaldamento]
+generatore = "caldaia a condensazione"
+combustibile = "metano"
+potenza_kW = 24
+anno = 2018
+terminali = "radiatori"
+regolazione = "valvole termostatiche"
+
+[impianto.acs]
+generatore = "combinata con il riscaldamento"
+
+# Dati climatici ILLUSTRATIVI (sostituire con UNI 10349-1 per il comune)
+[clima]
+comune = "Milano"
+provincia = "MI"
+zona_climatica = "E"
+gg = 2404
+te = [1.7, 4.2, 9.2, 14.0, 17.9, 22.5, 25.1, 24.1, 20.4, 14.0, 7.9, 3.1]
+
+[clima.irradianza]
+S    = [7.4, 9.9, 11.9, 11.9, 11.5, 11.3, 12.0, 12.9, 13.0, 10.6, 7.2, 6.3]
+N    = [1.6, 2.3, 3.4, 4.8, 6.5, 7.6, 7.3, 5.6, 3.9, 2.6, 1.7, 1.4]
+E    = [3.5, 5.6, 8.6, 11.0, 13.1, 14.2, 15.0, 13.5, 10.4, 6.6, 3.6, 2.9]
+O    = [3.5, 5.6, 8.6, 11.0, 13.1, 14.2, 15.0, 13.5, 10.4, 6.6, 3.6, 2.9]
+ORIZ = [4.0, 6.9, 11.3, 15.8, 19.4, 21.5, 22.5, 19.3, 14.4, 8.8, 4.6, 3.4]

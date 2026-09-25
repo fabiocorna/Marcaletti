@@ -122,3 +122,4 @@ class Progetto:
     znc: dict[str, ZonaNonClimatizzata]
     anagrafica: dict = field(default_factory=dict)
     ipotesi: list[str] = field(default_factory=list)  # registro dei default applicati
+    impianto: dict = field(default_factory=dict)  # dati impianto (per ora solo in scheda)

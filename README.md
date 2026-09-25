@@ -9,9 +9,20 @@ Energetico (CEER). Questo progetto quindi **non sostituisce** CENED: prepara i d
 e genera un XML da importare con *File > Importa file XML* di CENED+2.0, dove il certificatore
 completa, calcola e deposita. Dettagli in [docs/ROADMAP.md](docs/ROADMAP.md).
 
+## Obiettivo
+
+Dai dati minimi raccolti al sopralluogo all'APE in pochi minuti:
+
+```
+dati essenziali (input rapido) ─► progetto completo + pre-calcolo + scheda + XML
+                                   ─► CENED+2.0: Importa XML ─► Calcola ─► deposito ─► APE
+```
+
 ## Uso
 
 ```
+python -m cened rapido  progetti/rapido_esempio.toml -o progetto.toml --scheda scheda.md \
+                        [--modello esempi/calcolo.xml --xml import.xml]
 python -m cened calcola progetti/esempio_appartamento.toml
 python -m cened scheda  progetti/esempio_appartamento.toml -o scheda.md
 python -m cened xml     progetti/esempio_appartamento.toml --modello esempi/calcolo.xml -o import.xml
@@ -21,6 +32,10 @@ python -m unittest discover tests
 
 Serve solo Python 3.11+ (nessuna dipendenza esterna).
 
+- `rapido`: dai dati minimi (anno, superficie, piano, cosa c'è su ogni lato, serramenti,
+  impianto) genera il progetto completo con stratigrafie tipiche per epoca, geometria
+  semplificata, superfici finestrate, ponti termici; ogni ipotesi è registrata.
+  Il progetto generato è un normale TOML da correggere con i dati misurati.
 - `calcola`: U delle strutture (UNI EN ISO 6946), U_w serramenti (UNI EN ISO 10077-1),
   H_tr, H_ve, H'_T, fabbisogno mensile Q_H,nd ed EP_H,nd (UNI/TS 11300-1).
 - `scheda`: scheda di compilazione in Markdown, nell'ordine delle maschere CENED, con
@@ -39,6 +54,7 @@ Serve solo Python 3.11+ (nessuna dipendenza esterna).
 | `cened/modello.py` | clima, stagione di riscaldamento (DPR 412/93), zona, dispersioni |
 | `cened/bilancio.py` | bilancio mensile UNI/TS 11300-1 |
 | `cened/progetto.py` | lettura del progetto TOML e registro ipotesi |
+| `cened/rapido.py` | input rapido: regole per epoca costruttiva e geometria semplificata |
 | `cened/scheda.py` | scheda di compilazione |
 | `cened/esporta_xml.py` | generatore XML per l'import in CENED+2.0 |
 | `progetti/` | progetti di esempio (formato di input) |

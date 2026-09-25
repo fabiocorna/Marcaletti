@@ -31,8 +31,8 @@ def _struttura(s, lib, ipotesi):
         if sp is None:
             raise ValueError(f"struttura {s['id']}: spessore mancante per '{mid}'")
         if mat.fonte == "indicativo":
-            ipotesi.append(f"Struttura '{s['nome']}': materiale '{mat.nome}' con valori "
-                           f"di libreria indicativi (λ={mat.lambda_}, R={mat.r})")
+            val = f"λ={mat.lambda_} W/mK" if mat.r is None else f"R={mat.r} m²K/W"
+            ipotesi.append(f"Materiale '{mat.nome}': valore di libreria indicativo ({val})")
         strati.append(Strato(mat, sp))
     extra = {k: v for k, v in s.items() if k.startswith("cened_")}
     return StrutturaOpaca(s["id"], s["nome"], s["tipo"], s["verso"], strati,
@@ -70,7 +70,7 @@ def carica(percorso: str) -> Progetto:
 
 
 def da_dizionario(dati: dict) -> Progetto:
-    ipotesi: list[str] = []
+    ipotesi: list[str] = list(dati.get("ipotesi_rapido", []))
     lib = _materiali(dati)
 
     c = dati["clima"]
@@ -122,4 +122,5 @@ def da_dizionario(dati: dict) -> Progetto:
 
     return Progetto(nome=dati.get("progetto", {}).get("nome", "senza nome"), clima=clima,
                     zona=zona, strutture=strutture, serramenti=serramenti, ponti=ponti,
-                    znc=znc, anagrafica=dati.get("progetto", {}), ipotesi=ipotesi)
+                    znc=znc, anagrafica=dati.get("progetto", {}), ipotesi=ipotesi,
+                    impianto=dati.get("impianto", {}))

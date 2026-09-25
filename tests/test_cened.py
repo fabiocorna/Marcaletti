@@ -139,3 +139,52 @@ class TestEsportaXml(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRapido(unittest.TestCase):
+    BASE = {
+        "anno_costruzione": 1972, "superficie_utile": 75.0, "tipologia": "appartamento",
+        "piano": "intermedio", "lati": {"S": "esterno", "N": "esterno", "E": "adiacente", "O": "scala"},
+        "clima": {"comune": "X", "zona_climatica": "E", "te": [2, 4, 9, 14, 18, 22, 25, 24, 20, 14, 8, 3],
+                  "irradianza": {e: [5.0] * 12 for e in ("S", "N", "E", "O", "ORIZ")}},
+    }
+
+    def _prog(self, **kw):
+        from cened.progetto import da_dizionario
+        from cened.rapido import genera_progetto
+        dati = {**self.BASE, **kw}
+        return genera_progetto(dati), da_dizionario(genera_progetto(dati))
+
+    def test_toml_riletto_uguale(self):
+        import tomllib
+        from cened.progetto import da_dizionario
+        from cened.rapido import a_toml
+        d, p = self._prog()
+        p2 = da_dizionario(tomllib.loads(a_toml(d)))
+        self.assertAlmostEqual(calcola(p).q_h_nd, calcola(p2).q_h_nd, places=3)
+        self.assertEqual(set(p.ipotesi), set(p2.ipotesi))
+
+    def test_superficie_finestrata(self):
+        _, p = self._prog()
+        a_fin = sum(d.area for d in p.zona.dispersioni if d.is_serramento)
+        self.assertAlmostEqual(a_fin, 75 * 0.125, delta=1.8)
+
+    def test_epoca_recente_migliore(self):
+        _, vecchio = self._prog(anno_costruzione=1960)
+        _, nuovo = self._prog(anno_costruzione=2020)
+        self.assertLess(calcola(nuovo).q_h_nd, calcola(vecchio).q_h_nd / 2)
+        self.assertLess(nuovo.strutture["PAR_EST"].u, 0.30)
+
+    def test_villetta_su_cantina(self):
+        d, p = self._prog(tipologia="villetta", numero_piani=2, sotto="cantina", superficie_utile=140,
+                          lati={"S": "esterno", "N": "esterno", "E": "esterno", "O": "esterno"})
+        nomi = {x.nome for x in p.zona.dispersioni}
+        self.assertIn("Copertura", nomi)
+        self.assertIn("Pavimento verso cantina", nomi)
+        self.assertIn("CANTINA", p.znc)
+        ep = calcola(p).ep_h_nd(140)
+        self.assertTrue(80 < ep < 300, ep)
+
+    def test_lato_non_valido(self):
+        with self.assertRaises(ValueError):
+            self._prog(lati={"X": "esterno"})

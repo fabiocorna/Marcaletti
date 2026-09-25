@@ -90,7 +90,14 @@ def genera_scheda(prog: Progetto, ris: Risultati) -> str:
                      f"{_r(m.q_sol, 0)} | {_r(m.q_int, 0)} | {_r(m.eta, 3)} | {_r(m.q_h_nd, 0)} |")
     L.append("")
 
-    L += ["## 9. Registro ipotesi e valori di default", ""]
+    if prog.impianto:
+        L += ["## 9. Impianti (da inserire/verificare in CENED+2.0)", "", "| Servizio | Dati |", "|---|---|"]
+        for serv, dati in prog.impianto.items():
+            testo = ", ".join(f"{k}: {v}" for k, v in dati.items()) if isinstance(dati, dict) else dati
+            L.append(f"| {serv} | {testo} |")
+        L.append("")
+
+    L += ["## 10. Registro ipotesi e valori di default", ""]
     L += [f"- {i}" for i in dict.fromkeys(prog.ipotesi)] or ["- nessuna"]
     L.append("")
     return "\n".join(L)

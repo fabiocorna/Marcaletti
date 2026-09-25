@@ -44,6 +44,7 @@ LIBRERIA: dict[str, Materiale] = {
     "calcestruzzo_armato": _m("Calcestruzzo armato", 2.30, 2400, 1000),
     "pietra_naturale": _m("Pietra naturale compatta", 2.30, 2500, 1000),
     "legno_abete": _m("Legno di abete", 0.13, 450, 1600),
+    "blocco_alveolato": _m("Blocco in laterizio alveolato (λ equivalente)", 0.25, 850, 840),
     "forato_8": _r("Laterizio forato 8 cm", 0.20, 0.08, 800),
     "forato_12": _r("Laterizio forato 12 cm", 0.31, 0.12, 800),
     "solaio_laterocemento_20_4": _r("Solaio in laterocemento 20+4", 0.33, 0.24, 1200),
