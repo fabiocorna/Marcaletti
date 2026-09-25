@@ -1,5 +1,32 @@
 # Analisi: cosa serve per un software APE compatibile CENED+2.0
 
+## 0. Architettura (settembre 2026)
+
+```
+                       ┌────────────── VPS (docker compose) ──────────────┐
+ browser ── HTTPS ──►  │ Caddy ─► app web (FastAPI)                        │
+                       │           ├─ motore proprio: U, Glaser, Y_ie,     │
+                       │           │  UNI/TS 11300-1, verifiche L10,       │
+                       │           │  relazione tecnica                    │
+                       │           ├─ generatore datiInput (XSD + codici   │
+                       │           │  archivio CENED)                      │
+                       │           └─► servizio "motore" (Java) ──────────►│ calcolo.xml ufficiale
+                       │               jar CENED+2.0 dell'installazione    │  (classe, EP, messaggi)
+                       └───────────────────────────────────────────────────┘
+                                         │
+             certificatore: apre/verifica in CENED+2.0, firma, deposita al CEER
+```
+
+- Il **motore proprio** serve alla Legge 10 (dove CENED non basta: Glaser, Y_ie, verifiche,
+  relazione) e al pre-calcolo immediato mentre si inseriscono i dati.
+- Il **motore CENED** (già provato headless nel lavoro precedente: Classe F, 0 errori) dà i
+  numeri ufficiali dell'APE e fa da "oracolo di completezza": i suoi messaggi
+  (`sd:messaggio` con chiave ed XPath) dicono cosa manca o non è coerente.
+- Lezione dal lavoro precedente: modificare a mano i campi pre-calcolati delle strutture
+  nell'XML non regge (catena di valori interdipendenti validata dal motore). Le strutture
+  vanno riferite ai **codici d'archivio CENED** (`archivio_strutture_cened.json`, 934 voci con
+  mappatura per epoca) oppure fatte ricalcolare dai servizi del motore.
+
 ## 1. Quadro normativo e tecnico
 
 - **Regione Lombardia**: DGR 3868/2015, DDUO 2456/2017 e **DDUO 18546/2019** e s.m.i.
@@ -33,8 +60,20 @@ non tecnico, da valutare più avanti.
 - [x] Generatore XML "a modello" (sperimentale, da validare con import reale).
 - [x] Lettore di export CENED.
 - [x] Input rapido: progetto completo da pochi dati (epoca, superficie, piano, lati, serramenti).
+- [x] Applicazione web con login, archivio progetti, dati climatici, deploy Docker + HTTPS.
+- [x] Verifica di Glaser (UNI EN ISO 13788) e Y_ie / sfasamento (UNI EN ISO 13786).
+- [x] Comuni lombardi (ISTAT, zona, GG).
+- [ ] Verifiche allineate a DGR 6153/2026 e Decreto 6437/2026 (in corso).
+- [ ] Generatore datiInput conforme XSD con codici d'archivio + servizio motore CENED.
+- [ ] Relazione tecnica ex L.10 secondo il modello regionale 2026.
 
 ## 3. Cosa serve dal certificatore (bloccante per la validazione)
+
+Stato: dal Dropbox sono stati recuperati comuni, archivio strutture, codice precedente e
+normativa 2026. **Mancano ancora gli XSD e i calcolo.xml reali** (il connettore Dropbox
+restituisce solo il testo e toglie i tag XML): vanno caricati direttamente in chat oppure
+va consentito il dominio `dl.dropboxusercontent.com` nella rete dell'ambiente.
+
 
 1. **Alcuni `calcolo.xml` reali** esportati da CENED+2.0 (in `esempi/`, esclusi da git):
    villetta, ultimo piano, piano terra su cantina/terreno, con caldaia a condensazione,
