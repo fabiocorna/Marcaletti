@@ -799,3 +799,46 @@ Deposito e varianti:
 **Manuale CENED (Modulo F)**
 
 38. **MF è del 2019.** Cita il DDUO 2456/2017, i punti 6.21 e 12.14 dell'epoca e le Tab. 10 e 11 del 2017. Il criterio «coefficiente di schermatura 0,3» non ha corrispondenza nell'ALL. Il frontespizio del MF è frammentato in sillabe (illeggibile ma senza contenuto tecnico).
+
+---
+
+## 7. Allegato B del Decreto 6437/2026 (aggiunto dopo aver ricevuto gli allegati)
+
+Fonte: `Allegato-B.pdf` (12 pagine). Valori solo per le zone E ed F: in Lombardia i comuni sono in zona
+E (1359) o F (204). Implementato in `cened/verifiche.py`.
+
+| Tabella | Grandezza | E | F |
+|---|---|---|---|
+| 1 (rif.) | U opache verticali (esterno, ZNC, terreno) | 0,26 | 0,24 |
+| 2 (rif.) | U coperture | 0,22 | 0,20 |
+| 3 (rif.) | U pavimenti | 0,26 | 0,24 |
+| 4 (rif.) | U chiusure trasparenti/opache e cassonetti | 1,40 | 1,10 |
+| 5 | U divisori tra unità immobiliari (tutte le zone) | 0,8 | 0,8 |
+| 6 / 17 | g_gl+sh finestre E→S→O (con schermatura mobile) | 0,35 | 0,35 |
+| 13 | U max opache verticali (2° livello, riqualificazione) | 0,28 | 0,26 |
+| 14 | U max coperture | 0,24 | 0,22 |
+| 15 | U max pavimenti | 0,29 | 0,28 |
+| 16 | U max chiusure trasparenti/opache e cassonetti | 1,40 | 1,10 |
+
+H'_T limite, Tab. 10 (nuove costruzioni, ampliamenti, recuperi): S/V > 0,7 → 0,50 / 0,48;
+0,4 < S/V ≤ 0,7 → 0,55 / 0,53; S/V ≤ 0,4 → 0,75 / 0,70 (E / F).
+
+H'_T limite, Tab. 11 (1° livello), per quota vetrata ex ante ≤ 9, 14, 19, 24, 28, 33, 38, 43, 47, 52,
+57, 62, 67, 71, 76, 81, 86, 90, 95, 100 %:
+- E: 0,55 0,55 0,55 0,55 0,58 0,62 0,66 0,70 0,74 0,78 0,82 0,85 0,89 0,92 0,95 0,99 1,02 1,04 1,07 1,10
+- F: 0,53 0,53 0,53 0,53 0,53 0,53 0,56 0,60 0,63 0,66 0,69 0,72 0,75 0,79 0,82 0,85 0,87 0,90 0,93 0,96
+
+A_sol,est/A_sup,utile, Tab. 12: < 0,030 per E.1 (esclusi collegi, conventi, case di pena, caserme, E.1(3));
+< 0,040 per gli altri edifici.
+
+Regole: verso ZNC limite (e U di riferimento) diviso per b_tr (§1.1 p.2, §3.1 p.5); verso terreno si
+confronta la U equivalente UNI EN ISO 13370 (§3.1 p.6); 2° livello: U comprensiva dei soli ponti termici
+di Tab. 18 confrontata con la U limite + ψ_tab (§3.1 p.2); ponte tra strutture diverse attribuito a metà
+a ciascuna (§3.1 p.10).
+
+Impianti di riferimento: Tab. 7 (η_u: idronica 0,81/0,81/0,70 H/C/W, aeraulica 0,83, mista 0,82),
+Tab. 8 (η_gn: gas 0,95 H / 0,85 W, liquido 0,82/0,80, PdC elettrica 3,0 H / 2,5 W, frigo 2,50, …),
+Tab. 8 bis (efficienze per FER: 1,54 H, 1,28 C, 1,28 W), Tab. 9 (ventilazione, Wh/m³).
+Caldaie in riqualificazione: η_gn,utile ≥ 90 + 2 log Pn (Pn ≤ 400 kW), §3.3.1.
+
+L'**Allegato H** (586 pagine) è il metodo di calcolo completo usato dal motore CENED.

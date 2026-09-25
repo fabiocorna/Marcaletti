@@ -30,7 +30,8 @@ ETICHETTE_INTERVENTO = {
     "esistente": "APE edificio esistente (verifiche informative)",
     "riqualificazione": "Riqualificazione energetica",
     "ristr2": "Ristrutturazione importante di 2° livello",
-    "nuova": "Nuova costruzione / ristrutturazione di 1° livello",
+    "ristr1": "Ristrutturazione importante di 1° livello",
+    "nuova": "Nuova costruzione / ampliamento",
 }
 
 @asynccontextmanager

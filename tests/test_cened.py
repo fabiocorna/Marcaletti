@@ -324,3 +324,43 @@ class TestTerreno(unittest.TestCase):
         pav = next(d for d in p.zona.dispersioni if d.nome.startswith("Pavimento"))
         self.assertIsNotNone(pav.u_terreno)
         self.assertLess(pav.u_terreno, pav.elemento.u)
+
+
+class TestVerifiche2026(unittest.TestCase):
+    def setUp(self):
+        self.prog = carica(ESEMPIO)
+        self.ris = calcola(self.prog)
+
+    def test_tabelle_allegato_b(self):
+        from cened import verifiche as v
+        self.assertEqual(v.h_t_limite_nuova(0.8, "E"), 0.50)
+        self.assertEqual(v.h_t_limite_nuova(0.5, "F"), 0.53)
+        self.assertEqual(v.h_t_limite_nuova(0.3, "E"), 0.75)
+        self.assertEqual(v.h_t_limite_ristr1(9, "E"), 0.55)
+        self.assertEqual(v.h_t_limite_ristr1(30, "E"), 0.62)
+        self.assertEqual(v.h_t_limite_ristr1(100, "F"), 0.96)
+        self.assertEqual(v.zona_normativa("F1"), "F")
+
+    def test_riqualificazione_limiti_e_znc(self):
+        from cened.verifiche import verifica
+        ver = {x.oggetto: x for x in verifica(self.prog, self.ris, "riqualificazione")}
+        self.assertEqual(ver["Muratura mattone pieno 30 cm intonacata"].limite, 0.28)
+        self.assertAlmostEqual(ver["Parete verso vano scala 25 cm"].limite, 0.28 / 0.6)
+        self.assertEqual(ver["Solaio interpiano laterocemento"].limite, 0.8)
+
+    def test_isolamento_interno_maggiorazione(self):
+        from cened.verifiche import posizione_isolante
+        s = StrutturaOpaca("X", "x", "parete", "esterno",
+                           [Strato(LIBRERIA["cartongesso"], 0.0125), Strato(LIBRERIA["eps"], 0.06),
+                            Strato(LIBRERIA["mattone_pieno"], 0.25)])
+        self.assertEqual(posizione_isolante(s), "interno")
+        s2 = StrutturaOpaca("Y", "y", "parete", "esterno",
+                            [Strato(LIBRERIA["mattone_pieno"], 0.25), Strato(LIBRERIA["eps"], 0.10),
+                             Strato(LIBRERIA["intonaco_calce_cemento"], 0.01)])
+        self.assertEqual(posizione_isolante(s2), "esterno")
+
+    def test_nuova_costruzione_h_t(self):
+        from cened.verifiche import verifica
+        h = [x for x in verifica(self.prog, self.ris, "nuova") if x.grandezza == "H'_T"][0]
+        self.assertEqual(h.limite, 0.75)  # S/V 0,27 < 0,4, zona E
+        self.assertEqual(h.esito, "NON VERIFICATA")
