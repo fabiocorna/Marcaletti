@@ -103,6 +103,8 @@ def leggi(path):
                         U=u,
                     )
                     h_tr += u * area
+                elif d.get("rifTerreno"):
+                    voce.update(tipo="terreno", struttura=f"terreno #{d.get('rifTerreno')}", area=0.0, U=0.0)
                 elif d.get("rifSerramenti"):
                     inp, outp = serramenti.get(d.get("rifSerramenti"), ({}, {}))
                     area = _f(outp.get("a_w"))

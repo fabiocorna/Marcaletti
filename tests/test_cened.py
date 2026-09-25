@@ -115,8 +115,22 @@ class TestEsportaXml(unittest.TestCase):
         op = self.root.findall(f".//{D}servizioOpache/{D}opache")
         self.assertEqual(len(op), len(self.prog.strutture))
         par = next(e for e in op if e.find(f"{D}input").get("nome").startswith("Muratura mattone"))
-        self.assertAlmostEqual(float(par.find(f"{D}output").get("u")), 1.599, places=3)
-        self.assertEqual(par.find(f"{D}input").get("versoDispersione"), "1")
+        self.assertIsNone(par.find(f"{D}output"))  # lo ricalcola il motore
+        inp = par.find(f"{D}input")
+        self.assertEqual(inp.get("versoDispersione"), "1")
+        self.assertEqual(inp.get("tipoStrutturaOpache"), "1")
+        strati = inp.findall(f"{D}datiStrato")
+        self.assertEqual(len(strati), 3 + 2)  # 3 strati + resistenze superficiali
+        self.assertEqual(strati[0].get("categoriaStrato"), "16")
+        self.assertEqual(strati[2].get("d_i"), "300")  # mm
+        # la somma delle resistenze degli strati ridà la U calcolata
+        r = sum(float(x.get("r_i")) if x.get("r_i") else float(x.get("d_i")) / 1000 / float(x.get("lambda_i"))
+                for x in strati)
+        self.assertAlmostEqual(1 / r, self.prog.strutture["PAR_EST"].u, places=4)
+        mats = {m.get("id") for m in self.root.iter(f"{D}materiale")}
+        self.assertTrue(all(x.get("rifMateriali") in mats for x in strati))
+        sol = next(e for e in op if e.find(f"{D}input").get("nome").startswith("Solaio"))
+        self.assertEqual(sol.find(f"{D}input").get("versoDispersione"), "5")  # verso altra unità
 
     def test_dispersioni_e_riferimenti(self):
         disp = self.root.findall(f".//{D}zona/{D}dispersioni/{D}dispersione")
@@ -127,17 +141,17 @@ class TestEsportaXml(unittest.TestCase):
         znc = self.root.find(f".//{D}zonaNonClimatizzata")
         scala = next(e for e in disp if e.get("nome") == "Parete vano scala")
         self.assertEqual(scala.get("rifAmbienteConfinante"), znc.get("id"))
-        self.assertEqual(scala.get("verso"), "znc")
+        self.assertIsNone(scala.get("verso"))  # le opache non hanno verso negli export CENED
         self.assertNotIn("rifIrraggiamento", scala.attrib)
         fin = next(e for e in disp if e.get("nome") == "Finestre Sud")
         self.assertAlmostEqual(float(fin.get("area")), 2 * 1.2 * 1.5)
+        self.assertEqual(fin.get("verso"), "esterno")
         self.assertEqual(fin.get("rifIrraggiamento"), "14")  # S già nel modello
         nord = next(e for e in disp if e.get("nome") == "Parete Nord")
         irr_n = nord.get("rifIrraggiamento")
         self.assertNotEqual(irr_n, "14")
         nuovo = [e for e in self.root.iter(f"{D}irraggiamento") if e.get("id") == irr_n][0]
         self.assertEqual(nuovo.find(f"{D}input").get("gamma"), "180")
-        self.assertEqual(next(e for e in disp if e.get("nome").startswith("Pavimento")).get("verso"), "interno")
         self.assertFalse([a for a in self.avvisi if a.startswith("riferimento")], self.avvisi)
 
     def test_geometria(self):
@@ -254,3 +268,20 @@ class TestSchema(unittest.TestCase):
             errori = schema.valida(f.read())
         self.assertTrue(errori)  # il modello sintetico è volutamente incompleto
         self.assertIn("configurazioneCalcolo", errori[0])
+
+
+class TestEsportaSuExportReali(unittest.TestCase):
+    """Usa come modello i calcolo.xml reali in esempi/ (non versionati): saltato se assenti."""
+
+    def test_xsd_valido_su_tutti_i_modelli(self):
+        import glob
+        from cened import schema
+        modelli = sorted(glob.glob(os.path.join(QUI, "..", "esempi", "*.xml")))
+        if not modelli or not schema.disponibile():
+            self.skipTest("nessun export reale o XSD assenti")
+        prog = carica(ESEMPIO)
+        for m in modelli:
+            with self.subTest(modello=os.path.basename(m)):
+                xml, avvisi = genera_xml(prog, m)
+                self.assertEqual(schema.valida(xml), [])
+                self.assertFalse([a for a in avvisi if a.startswith("riferimento")], avvisi)
