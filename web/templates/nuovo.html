@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block titolo %}Nuovo progetto{% endblock %}
+{% block corpo %}
+<h1>Nuovo progetto — input rapido</h1>
+<p class="nota">Pochi dati di sopralluogo: stratigrafie, serramenti, ponti termici e geometria vengono
+ricavati per epoca costruttiva e riportati nel registro ipotesi, da verificare e correggere.</p>
+{% if errore %}<p class="errore">{{ errore }}</p>{% endif %}
+{% if not climi %}<p class="errore">Nessun comune con dati climatici: <a href="/climi">inseriscili qui</a>.</p>{% endif %}
+<form method="post" class="modulo griglia">
+  <fieldset>
+    <legend>Identificazione</legend>
+    <label>Nome progetto <input name="nome" value="{{ v.nome or '' }}" placeholder="Via Roma 10, int. 5" required></label>
+    <label>Comune
+      <select name="comune" required>
+        {% for c in climi %}<option {% if v.comune == c.comune %}selected{% endif %}>{{ c.comune }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Tipo di intervento
+      <select name="intervento">
+        {% for k, e in interventi.items() %}<option value="{{ k }}" {% if v.intervento == k %}selected{% endif %}>{{ e }}</option>{% endfor %}
+      </select>
+    </label>
+  </fieldset>
+  <fieldset>
+    <legend>Edificio</legend>
+    <label>Anno di costruzione <input name="anno_costruzione" type="number" min="1800" max="2100" value="{{ v.anno_costruzione or '' }}" required></label>
+    <label>Tipologia
+      <select name="tipologia">
+        <option value="appartamento">Appartamento</option>
+        <option value="villetta" {% if v.tipologia == 'villetta' %}selected{% endif %}>Villetta / edificio intero</option>
+      </select>
+    </label>
+    <label>Piano (appartamento)
+      <select name="piano">
+        {% for p in ['intermedio', 'terra', 'ultimo'] %}<option {% if v.piano == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Numero piani (villetta) <input name="numero_piani" type="number" min="1" max="10" value="{{ v.numero_piani or 1 }}"></label>
+    <label>Sotto il piano terra
+      <select name="sotto">
+        {% for s in ['terreno', 'cantina', 'adiacente'] %}<option {% if v.sotto == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Superficie utile [m²] <input name="superficie_utile" inputmode="decimal" value="{{ v.superficie_utile or '' }}" required></label>
+    <label>Altezza netta [m] <input name="altezza_netta" inputmode="decimal" value="{{ v.altezza_netta or '2,70' }}"></label>
+  </fieldset>
+  <fieldset>
+    <legend>Lati (cosa c'è oltre la parete)</legend>
+    {% for esp in ['N', 'E', 'S', 'O', 'NE', 'SE', 'SO', 'NO'] %}
+    <label>{{ esp }}
+      <select name="lato_{{ esp }}">
+        <option value="">—</option>
+        {% for t in ['esterno', 'scala', 'adiacente'] %}<option {% if v['lato_' ~ esp] == t %}selected{% endif %}>{{ t }}</option>{% endfor %}
+      </select>
+    </label>
+    {% endfor %}
+    <label>Lato lungo <select name="lato_lungo"><option value="">(primo indicato)</option>
+      {% for esp in ['N', 'E', 'S', 'O', 'NE', 'SE', 'SO', 'NO'] %}<option {% if v.lato_lungo == esp %}selected{% endif %}>{{ esp }}</option>{% endfor %}</select></label>
+  </fieldset>
+  <fieldset>
+    <legend>Serramenti (se diversi dall'epoca)</legend>
+    <label>Vetro <select name="vetro"><option value="">(tipico dell'epoca)</option>
+      {% for x in ['singolo', 'doppio', 'doppio_basso_emissivo', 'triplo_basso_emissivo'] %}<option {% if v.vetro == x %}selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
+    <label>Telaio <select name="telaio"><option value="">(tipico dell'epoca)</option>
+      {% for x in ['legno', 'pvc', 'metallo', 'metallo_taglio_termico'] %}<option {% if v.telaio == x %}selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
+  </fieldset>
+  <fieldset>
+    <legend>Impianto di riscaldamento</legend>
+    <label>Generatore <input name="generatore" value="{{ v.generatore or '' }}" placeholder="caldaia a condensazione"></label>
+    <label>Combustibile <input name="combustibile" value="{{ v.combustibile or '' }}" placeholder="metano"></label>
+    <label>Potenza [kW] <input name="potenza_kW" value="{{ v.potenza_kW or '' }}"></label>
+    <label>Anno generatore <input name="anno_generatore" value="{{ v.anno_generatore or '' }}"></label>
+    <label>Terminali <input name="terminali" value="{{ v.terminali or '' }}" placeholder="radiatori"></label>
+    <label>Regolazione <input name="regolazione" value="{{ v.regolazione or '' }}" placeholder="valvole termostatiche"></label>
+  </fieldset>
+  <div class="azioni"><button class="primario">Genera progetto</button></div>
+</form>
+{% endblock %}

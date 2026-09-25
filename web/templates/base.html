@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titolo %}Marcaletti{% endblock %} · APE e Legge 10</title>
+<link rel="stylesheet" href="/static/stile.css">
+</head>
+<body>
+<header class="barra">
+  <a class="logo" href="/">Marcaletti <span>APE · Legge 10</span></a>
+  {% if u %}
+  <nav>
+    <a href="/">Progetti</a>
+    <a href="/progetti/nuovo">Nuovo</a>
+    <a href="/climi">Dati climatici</a>
+    <form method="post" action="/logout"><button class="link">Esci ({{ u.username }})</button></form>
+  </nav>
+  {% endif %}
+</header>
+<main>{% block corpo %}{% endblock %}</main>
+</body>
+</html>

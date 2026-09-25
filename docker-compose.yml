@@ -1,0 +1,34 @@
+# Avvio sul VPS:  DOMINIO=ape.tuodominio.it docker compose up -d --build
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      MARCALETTI_COOKIE_SECURE: "1"
+      MOTORE_URL: "http://motore:8080"
+    volumes:
+      - dati:/dati
+    expose: ["8000"]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMINIO: ${DOMINIO:?impostare DOMINIO}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_dati:/data
+    depends_on: [app]
+
+  # Motore CENED+2.0 (facoltativo): richiede il jar del motore della propria installazione
+  # CENED in motore/engine/ e si attiva con:  docker compose --profile motore up -d
+  motore:
+    profiles: ["motore"]
+    build: ./motore
+    restart: unless-stopped
+    expose: ["8080"]
+
+volumes:
+  dati:
+  caddy_dati:

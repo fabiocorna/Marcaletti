@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block titolo %}Dati climatici{% endblock %}
+{% block corpo %}
+<h1>Dati climatici</h1>
+<p class="nota">Valori medi mensili UNI 10349-1 del comune (temperature in °C, irradiazione solare globale
+media giornaliera in MJ/m² per esposizione). Servono per il pre-calcolo; CENED usa i propri dati ufficiali.</p>
+{% if errore %}<p class="errore">{{ errore }}</p>{% endif %}
+{% if climi %}
+<div class="scorri"><table class="tabella">
+  <thead><tr><th>Comune</th><th>Prov.</th><th>Zona</th><th class="num">GG</th><th>Esposizioni</th><th></th></tr></thead>
+  <tbody>
+  {% for c in climi %}
+  <tr><td>{{ c.comune }}</td><td>{{ c.dati.provincia or '' }}</td><td>{{ c.dati.zona_climatica }}</td>
+      <td class="num">{{ c.dati.gg or '' }}</td><td>{{ c.dati.irradianza.keys()|join(', ') }}</td>
+      <td><form method="post" action="/climi/{{ c.comune }}/elimina"><button class="link">elimina</button></form></td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endif %}
+<h2>Aggiungi o aggiorna un comune</h2>
+<form method="post" class="modulo">
+  <div class="griglia2">
+    <label>Comune <input name="comune" required></label>
+    <label>Provincia <input name="provincia" maxlength="2"></label>
+    <label>Zona climatica <select name="zona_climatica">{% for z in 'ABCDEF' %}<option {% if z == 'E' %}selected{% endif %}>{{ z }}</option>{% endfor %}</select></label>
+    <label>Gradi giorno (DPR 412/93) <input name="gg" inputmode="decimal"></label>
+  </div>
+  <label>Temperature medie mensili gen→dic <input name="te" placeholder="1,7 4,2 9,2 14,0 17,9 22,5 25,1 24,1 20,4 14,0 7,9 3,1" required></label>
+  {% for e in esposizioni %}
+  <label>Irradiazione {{ e }} gen→dic [MJ/m²] <input name="irr_{{ e }}"></label>
+  {% endfor %}
+  <div class="azioni"><button class="primario">Salva</button></div>
+</form>
+{% endblock %}

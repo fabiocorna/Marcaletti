@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block titolo %}{{ riga.nome }}{% endblock %}
+{% block corpo %}
+<div class="intesta">
+  <h1>{{ riga.nome }}</h1>
+  <div class="bottoni">
+    <a class="bottone" href="/progetti/{{ riga.id }}/scheda.md">Scheda CENED (.md)</a>
+    <a class="bottone" href="/progetti/{{ riga.id }}/progetto.toml">Progetto (.toml)</a>
+    {% if riga.modello_xml %}<a class="bottone primario" href="/progetti/{{ riga.id }}/import.xml">XML per CENED</a>{% endif %}
+  </div>
+</div>
+<p class="nota">{{ interventi.get(riga.intervento, riga.intervento) }}</p>
+
+{% if errore %}
+<p class="errore">Il progetto contiene un errore: {{ errore }}</p>
+{% else %}
+<section class="riquadri">
+  <div class="kpi"><span>EP<sub>H,nd</sub></span><b>{{ (ris.q_h_nd / prog.zona.superficie_utile)|num(1) }}</b><small>kWh/m²anno</small></div>
+  <div class="kpi"><span>Q<sub>H,nd</sub></span><b>{{ ris.q_h_nd|num(0) }}</b><small>kWh/anno</small></div>
+  <div class="kpi"><span>H'<sub>T</sub></span><b>{{ ris.h_t_medio|num(3) }}</b><small>W/m²K</small></div>
+  <div class="kpi"><span>Superficie utile</span><b>{{ prog.zona.superficie_utile|num(1) }}</b><small>m²</small></div>
+</section>
+<p class="nota">Pre-calcolo UNI/TS 11300-1 (solo riscaldamento, involucro). I valori ufficiali dell'APE li calcola il motore CENED+2.0.</p>
+
+<h2>Verifiche di legge</h2>
+<div class="scorri"><table class="tabella">
+  <thead><tr><th>Elemento</th><th>Grandezza</th><th class="num">Valore</th><th class="num">Limite</th><th>Esito</th><th>Riferimento</th></tr></thead>
+  <tbody>
+  {% for v in ver %}
+  <tr>
+    <td>{{ v.oggetto }}</td><td>{{ v.grandezza }}</td>
+    <td class="num">{{ v.valore|num(3) }}</td>
+    <td class="num">{{ v.limite|num(2) if v.limite is not none else '—' }}</td>
+    <td><span class="esito {{ 'ok' if v.esito == 'OK' else ('na' if v.esito == 'n.a.' else 'ko') }}">{{ v.esito }}</span></td>
+    <td class="piccolo">{{ v.riferimento }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+
+<h2>Strutture</h2>
+<div class="scorri"><table class="tabella">
+  <thead><tr><th>Codice</th><th>Nome</th><th>Tipo</th><th>Verso</th><th class="num">U [W/m²K]</th><th class="num">k<sub>i</sub> [kJ/m²K]</th></tr></thead>
+  <tbody>
+  {% for s in prog.strutture.values() %}
+  <tr><td>{{ s.id }}</td><td>{{ s.nome }}</td><td>{{ s.tipo }}</td><td>{{ s.verso }}</td>
+      <td class="num">{{ s.u|num(3) }}</td><td class="num">{{ s.k_i|num(1) }}</td></tr>
+  {% endfor %}
+  {% for s in prog.serramenti.values() %}
+  <tr><td>{{ s.id }}</td><td>{{ s.nome }}</td><td>serramento</td><td>esterno</td>
+      <td class="num">{{ s.u_w|num(3) }}</td><td class="num">—</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+
+<h2>Fabbisogno mensile</h2>
+<div class="scorri"><table class="tabella">
+  <thead><tr><th>Mese</th><th class="num">giorni</th><th class="num">θ<sub>e</sub></th><th class="num">Q<sub>tr</sub></th><th class="num">Q<sub>ve</sub></th><th class="num">Q<sub>sol</sub></th><th class="num">Q<sub>int</sub></th><th class="num">η</th><th class="num">Q<sub>H,nd</sub> [kWh]</th></tr></thead>
+  <tbody>
+  {% for m in ris.mesi if m.giorni %}
+  <tr><td>{{ m.mese }}</td><td class="num">{{ m.giorni }}</td><td class="num">{{ m.te|num(1) }}</td>
+      <td class="num">{{ m.q_tr|num(0) }}</td><td class="num">{{ m.q_ve|num(0) }}</td><td class="num">{{ m.q_sol|num(0) }}</td>
+      <td class="num">{{ m.q_int|num(0) }}</td><td class="num">{{ m.eta|num(3) }}</td><td class="num"><b>{{ m.q_h_nd|num(0) }}</b></td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+
+<h2>Registro ipotesi ({{ prog.ipotesi|unique|list|length }})</h2>
+<ul class="ipotesi">{% for i in prog.ipotesi|unique %}<li>{{ i }}</li>{% endfor %}</ul>
+{% endif %}
+
+<h2>Modello CENED per l'export XML</h2>
+<form method="post" action="/progetti/{{ riga.id }}/modello" enctype="multipart/form-data" class="modulo in-linea">
+  <input type="file" name="file" accept=".xml" required>
+  <button>Carica calcolo.xml</button>
+  <span class="nota">{{ 'Modello caricato.' if riga.modello_xml else 'Nessun modello: serve un calcolo.xml esportato da CENED+2.0.' }}</span>
+</form>
+
+<h2>Modifica avanzata</h2>
+<form method="post" action="/progetti/{{ riga.id }}/toml" class="modulo">
+  <div class="griglia2">
+    <label>Nome <input name="nome" value="{{ riga.nome }}"></label>
+    <label>Tipo di intervento
+      <select name="intervento">
+        {% for k, e in interventi.items() %}<option value="{{ k }}" {% if riga.intervento == k %}selected{% endif %}>{{ e }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+  <textarea name="progetto_toml" rows="24" spellcheck="false">{{ riga.progetto_toml }}</textarea>
+  <div class="azioni"><button class="primario">Salva e ricalcola</button></div>
+</form>
+<form method="post" action="/progetti/{{ riga.id }}/elimina" onsubmit="return confirm('Eliminare il progetto?')">
+  <button class="pericolo">Elimina progetto</button>
+</form>
+{% endblock %}

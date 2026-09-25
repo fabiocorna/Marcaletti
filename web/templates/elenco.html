@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block titolo %}Progetti{% endblock %}
+{% block corpo %}
+<div class="intesta">
+  <h1>Progetti</h1>
+  <a class="bottone primario" href="/progetti/nuovo">+ Nuovo progetto</a>
+</div>
+{% if progetti %}
+<div class="scorri"><table class="tabella">
+  <thead><tr><th>Nome</th><th>Tipo di intervento</th><th>Ultima modifica</th></tr></thead>
+  <tbody>
+  {% for p in progetti %}
+  <tr>
+    <td><a href="/progetti/{{ p.id }}">{{ p.nome }}</a></td>
+    <td>{{ etichette.get(p.intervento, p.intervento) }}</td>
+    <td class="data" data-ts="{{ p.modificato }}"></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+<script>
+document.querySelectorAll('.data').forEach(td => {
+  td.textContent = new Date(parseFloat(td.dataset.ts) * 1000).toLocaleString('it-IT');
+});
+</script>
+{% else %}
+<p class="vuoto">Nessun progetto. Inizia con <a href="/progetti/nuovo">un nuovo progetto</a>
+(servono prima i <a href="/climi">dati climatici</a> del comune).</p>
+{% endif %}
+{% endblock %}
