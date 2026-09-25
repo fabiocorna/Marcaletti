@@ -14,6 +14,7 @@ from cened.esporta_xml import ErroreModello, genera_xml
 from cened.progetto import da_dizionario
 from cened.rapido import EPOCHE, a_toml, genera_progetto
 from cened.scheda import genera_scheda
+from cened import comuni
 from cened.dinamica import dinamica
 from cened.igrotermia import glaser
 from cened.verifiche import INTERVENTI, verifica
@@ -289,7 +290,7 @@ def _serie(testo: str) -> list[float]:
 def climi(request: Request):
     u = utente(request)
     return pagina(request, "climi.html", u=u, climi=db.elenco_climi(u["id"]), esposizioni=ESPOSIZIONI,
-                  errore=None)
+                  errore=None, nomi_comuni=sorted(comuni.tutti()))
 
 
 @app.post("/climi", response_class=HTMLResponse)
@@ -298,9 +299,16 @@ async def salva_clima(request: Request):
     form = await request.form()
     try:
         comune = form["comune"].strip()
+        ufficiale = comuni.cerca(comune)
+        zona = form.get("zona_climatica", "").strip().upper() or (ufficiale or {}).get("zc")
+        if not zona:
+            raise ValueError("indicare la zona climatica")
         dati = {"comune": comune, "provincia": form.get("provincia", "").strip().upper() or None,
-                "zona_climatica": form["zona_climatica"].strip().upper(),
-                "te": _serie(form["te"]), "irradianza": {}}
+                "zona_climatica": zona, "te": _serie(form["te"]), "irradianza": {}}
+        if ufficiale:
+            dati["codice_istat"] = ufficiale["istat"]
+            if not form.get("gg") and ufficiale.get("gg"):
+                dati["gg"] = ufficiale["gg"]
         if form.get("ur", "").strip():
             dati["ur"] = _serie(form["ur"])
         if form.get("gg"):
@@ -312,7 +320,7 @@ async def salva_clima(request: Request):
         Clima(**{k: v for k, v in dati.items()})
     except (ValueError, KeyError, TypeError) as e:
         return pagina(request, "climi.html", u=u, climi=db.elenco_climi(u["id"]), esposizioni=ESPOSIZIONI,
-                      errore=str(e))
+                      errore=str(e), nomi_comuni=sorted(comuni.tutti()))
     dati = {k: v for k, v in dati.items() if v is not None}
     db.salva_clima(u["id"], comune, dati)
     return RedirectResponse("/climi", status_code=303)

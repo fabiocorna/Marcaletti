@@ -6,8 +6,10 @@ services:
     environment:
       MARCALETTI_COOKIE_SECURE: "1"
       MOTORE_URL: "http://motore:8080"
+      MARCALETTI_RISORSE: /risorse
     volumes:
       - dati:/dati
+      - ./risorse:/risorse:ro   # comuni_istat.json, archivio strutture (non versionati)
     expose: ["8000"]
 
   caddy:

@@ -17,6 +17,10 @@ docker compose exec app python -m web.utenti crea fabio      # crea l'utente (ch
 ```
 Caddy ottiene da solo il certificato HTTPS (Let's Encrypt). L'app risponde su `https://<DOMINIO>`.
 
+### Risorse non versionate
+Copiare sul VPS, nella cartella `risorse/` del progetto, i file di dati che non stanno nel
+repository (es. `comuni_istat.json`): vengono montati in sola lettura nel container.
+
 ## 3. Aggiornamento
 ```bash
 git pull && DOMINIO=ape.tuostudio.it docker compose up -d --build

@@ -92,3 +92,14 @@ class TestWeb(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(TestClient is None, "fastapi non installato")
+class TestComuni(unittest.TestCase):
+    def test_comune_ufficiale_riempie_zona_e_gg(self):
+        from cened import comuni
+        if not comuni.tutti():
+            self.skipTest("risorse/comuni_istat.json assente")
+        c = comuni.cerca("bergamo")
+        self.assertEqual(c["zc"], "E")
+        self.assertTrue(c["istat"].startswith("016"))
