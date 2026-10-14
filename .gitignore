@@ -1,3 +1,8 @@
 esempi/
 __pycache__/
 *.pyc
+pdf_studio/build/
+pdf_studio/dist/
+pdf_studio/.venv/
+*.spec
+.pytest_cache/

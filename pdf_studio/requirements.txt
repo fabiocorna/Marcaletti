@@ -1,0 +1,4 @@
+PySide6>=6.6
+PyMuPDF>=1.24
+# Facoltativo: esportazione in Word (.docx)
+pdf2docx>=0.5.8
