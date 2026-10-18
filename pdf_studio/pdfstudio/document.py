@@ -92,7 +92,11 @@ class PdfDocument:
         """Apre un PDF (o un'immagine/XPS/EPUB, convertiti in PDF)."""
         src = pymupdf.open(path)
         if src.is_pdf:
-            return cls(src, path)
+            src.close()
+            # Carica il file in memoria: su Windows un file tenuto aperto non può
+            # essere sovrascritto, e l'utente deve poter salvare sopra l'originale.
+            with open(path, "rb") as f:
+                return cls(pymupdf.open("pdf", f.read()), path)
         # Formati non PDF: conversione in memoria
         pdf_bytes = src.convert_to_pdf()
         src.close()
