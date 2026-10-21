@@ -71,7 +71,9 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
 
       - name: Pacchetto portabile
-        run: Compress-Archive -Path dist\PDFStudio\* -DestinationPath "dist\PDFStudio-portabile-$env:GITHUB_REF_NAME.zip"
+        run: |
+          $v = python -c "import pdfstudio; print(pdfstudio.__version__)"
+          Compress-Archive -Path dist\PDFStudio\* -DestinationPath "dist\PDFStudio-portabile-$v.zip"
 
       - name: Pubblica release
         if: startsWith(github.ref, 'refs/tags/v')

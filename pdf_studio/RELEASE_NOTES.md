@@ -4,7 +4,7 @@ Lettore ed editor PDF per Windows.
 
 ### Download
 - **PDFStudio-Setup-1.1.0.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
-- **PDFStudio-portabile-v1.1.0.zip** — versione da scompattare e avviare con `PDFStudio.exe`, senza installazione.
+- **PDFStudio-portabile-1.1.0.zip** — versione da scompattare e avviare con `PDFStudio.exe`, senza installazione.
 
 Al primo avvio Windows può mostrare «Windows ha protetto il PC» (programma senza firma digitale): *Ulteriori informazioni → Esegui comunque*.
 
