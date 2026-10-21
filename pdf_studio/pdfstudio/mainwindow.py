@@ -1,4 +1,4 @@
-"""Finestra principale di PDF Studio."""
+"""Finestra principale di CRN PDF Studio."""
 from __future__ import annotations
 
 import os
@@ -64,18 +64,27 @@ def glyph_icon(glyph: str, color: str = "#2b2b2b") -> QIcon:
 
 
 def app_icon() -> QIcon:
-    pm = QPixmap(128, 128)
+    """Icona di CRN PDF Studio: «CRN» su fondo rosso con la dicitura PDF."""
+    pm = QPixmap(256, 256)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
-    p.setBrush(QColor("#d32f2f"))
+    p.setBrush(QColor("#c62828"))
     p.setPen(Qt.NoPen)
-    p.drawRoundedRect(8, 8, 112, 112, 22, 22)
+    p.drawRoundedRect(12, 12, 232, 232, 44, 44)
     p.setPen(QColor("white"))
-    f = QFont("Arial", 40)
+    f = QFont("Arial", 66)
     f.setBold(True)
     p.setFont(f)
-    p.drawText(pm.rect(), Qt.AlignCenter, "PDF")
+    p.drawText(pm.rect().adjusted(0, -34, 0, -34), Qt.AlignCenter, "CRN")
+    p.setBrush(QColor("white"))
+    p.setPen(Qt.NoPen)
+    p.drawRoundedRect(52, 150, 152, 58, 12, 12)
+    f2 = QFont("Arial", 34)
+    f2.setBold(True)
+    p.setFont(f2)
+    p.setPen(QColor("#c62828"))
+    p.drawText(52, 150, 152, 58, Qt.AlignCenter, "PDF")
     p.end()
     return QIcon(pm)
 
@@ -116,7 +125,7 @@ class DocumentTab(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("PDF Studio")
+        self.setWindowTitle("CRN PDF Studio")
         self.setWindowIcon(app_icon())
         self.resize(1280, 860)
         self.setAcceptDrops(True)
@@ -145,12 +154,15 @@ class MainWindow(QMainWindow):
         geo = self.settings.value("geometry")
         if geo is not None:
             self.restoreGeometry(geo)
+        self._really_quit = False
+        self.watcher = None
+        self._create_tray()
         self._update_ui()
 
     # ================================================================== interfaccia
     def _welcome(self) -> None:
         self.welcome = QLabel(
-            "<div style='color:#666'><h1 style='color:#d32f2f'>PDF Studio</h1>"
+            "<div style='color:#666'><h1 style='color:#d32f2f'>CRN PDF Studio</h1>"
             "<p style='font-size:14px'>Apri un PDF con <b>Ctrl+O</b>, crea un documento con <b>Ctrl+N</b><br>"
             "oppure trascina qui i file (PDF o immagini).</p></div>")
         self.welcome.setAlignment(Qt.AlignCenter)
@@ -196,7 +208,9 @@ class MainWindow(QMainWindow):
                                   "Chiedi a Claude di analizzare o modificare il documento", checkable=True)
         self.a_claude_settings = self._act("Impostazioni Claude…", self.claude_settings)
         self.a_close = self._act("&Chiudi scheda", lambda: self.close_tab(self.tabs.currentIndex()), QKeySequence.Close)
-        self.a_quit = self._act("&Esci", self.close, QKeySequence.Quit)
+        self.a_quit = self._act("&Esci", self.quit_app, QKeySequence.Quit)
+        self.a_printer = self._act("Stampante virtuale «CRN PDF»…", self.printer_settings, None, glyph_icon("🖨"),
+                                   "Crea PDF stampando da qualsiasi programma")
 
         self.a_undo = self._act("&Annulla", self.undo, QKeySequence.Undo, glyph_icon("↶"))
         self.a_redo = self._act("&Ripeti", self.redo, QKeySequence.Redo, glyph_icon("↷"))
@@ -243,7 +257,7 @@ class MainWindow(QMainWindow):
         self.a_color = self._act("Colore strumenti…", self.pick_tool_color)
         self.a_hl_color = self._act("Colore evidenziatore…", self.pick_highlight_color)
 
-        self.a_about = self._act("Informazioni su PDF Studio", self.about)
+        self.a_about = self._act("Informazioni su CRN PDF Studio", self.about)
 
         self.tool_group = QActionGroup(self)
         self.tool_actions: dict[str, QAction] = {}
@@ -284,6 +298,8 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_props)
         m.addAction(self.a_security)
         m.addAction(self.a_signatures)
+        m.addSeparator()
+        m.addAction(self.a_printer)
         m.addSeparator()
         m.addAction(self.a_close)
         m.addAction(self.a_quit)
@@ -468,7 +484,7 @@ class MainWindow(QMainWindow):
             idx = self.tabs.indexOf(t)
             self.tabs.setTabText(idx, star + d.title)
             self.tabs.setTabToolTip(idx, d.path or "Non salvato")
-            self.setWindowTitle(f"{star}{d.title} — PDF Studio")
+            self.setWindowTitle(f"{star}{d.title} — CRN PDF Studio")
             page = d.page(min(t.view.current_page, d.page_count - 1))
             w_mm, h_mm = page.rect.width * 25.4 / 72, page.rect.height * 25.4 / 72
             lock = "  🔒" if d.encryption else ""
@@ -478,7 +494,7 @@ class MainWindow(QMainWindow):
             self.status_info.setText(f"{w_mm:.0f} × {h_mm:.0f} mm   {t.view.zoom * 100:.0f}%{lock}{badges}")
         else:
             self.page_total.setText(" / 0 ")
-            self.setWindowTitle("PDF Studio")
+            self.setWindowTitle("CRN PDF Studio")
             self.status_info.setText("")
 
     def _on_tab_changed(self, _index: int) -> None:
@@ -890,6 +906,18 @@ class MainWindow(QMainWindow):
         self._update_ui()
 
     def closeEvent(self, event) -> None:
+        if self.tray is not None and not self._really_quit and self._keep_in_tray():
+            # Resta attivo nell'area di notifica per ricevere le stampe
+            self.settings.setValue("geometry", self.saveGeometry())
+            self.settings.setValue("window_state", self.saveState())
+            self.hide()
+            if not self.settings.value("tray_hint_shown", False, type=bool):
+                self.tray.showMessage("CRN PDF Studio", "Il programma resta attivo qui per ricevere le stampe "
+                                      "dalla stampante «CRN PDF». Per chiuderlo: clic destro → Esci.",
+                                      app_icon(), 8000)
+                self.settings.setValue("tray_hint_shown", True)
+            event.ignore()
+            return
         for i in range(self.tabs.count()):
             w = self.tabs.widget(i)
             if isinstance(w, DocumentTab) and not self._confirm_close(w):
@@ -897,7 +925,10 @@ class MainWindow(QMainWindow):
                 return
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("window_state", self.saveState())
+        if self.tray is not None:
+            self.tray.hide()
         event.accept()
+        QApplication.quit()
 
     # ------------------------------------------------------------ trascina file
     def dragEnterEvent(self, e) -> None:
@@ -1433,7 +1464,7 @@ class MainWindow(QMainWindow):
         from . import pdfa
         if not pdfa.find_ghostscript():
             self._error("PDF/A", "Per creare file PDF/A serve Ghostscript, incluso nell'installer completo di "
-                                 "PDF Studio.\nIn alternativa installarlo da https://ghostscript.com/releases/")
+                                 "CRN PDF Studio.\nIn alternativa installarlo da https://ghostscript.com/releases/")
             return
         dlg = PdfADialog(self)
         if not dlg.exec():
@@ -1462,6 +1493,67 @@ class MainWindow(QMainWindow):
         if box.exec() == QMessageBox.Open:
             self.open_file(out)
 
+    # ===================================================== stampante virtuale
+    def _keep_in_tray(self) -> bool:
+        return self.settings.value("keep_in_tray", True, type=bool)
+
+    def _create_tray(self) -> None:
+        from PySide6.QtWidgets import QMenu, QSystemTrayIcon
+        self.tray = None
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        tray = QSystemTrayIcon(app_icon(), self)
+        tray.setToolTip("CRN PDF Studio — stampante «CRN PDF» pronta")
+        menu = QMenu(self)
+        menu.addAction("Apri CRN PDF Studio", self.bring_to_front)
+        menu.addAction("Apri un PDF…", lambda: (self.bring_to_front(), self.open_dialog()))
+        menu.addAction("Cartella delle stampe", self.open_prints_folder)
+        menu.addAction("Stampante virtuale…", lambda: (self.bring_to_front(), self.printer_settings()))
+        menu.addSeparator()
+        menu.addAction("Esci", self.quit_app)
+        tray.setContextMenu(menu)
+        tray.activated.connect(lambda reason: self.bring_to_front()
+                               if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick) else None)
+        tray.messageClicked.connect(self.bring_to_front)
+        tray.show()
+        self.tray = tray
+
+    def start_print_watcher(self) -> None:
+        from .printer import PrintWatcher
+        if self.watcher is None:
+            self.watcher = PrintWatcher(parent=self)
+            self.watcher.pdfReady.connect(self._print_received)
+            self.watcher.start()
+
+    def _print_received(self, path: str) -> None:
+        self.open_file(path)
+        self.bring_to_front()
+        if self.tray is not None:
+            self.tray.showMessage("Nuovo PDF creato", os.path.basename(path), app_icon(), 4000)
+
+    def bring_to_front(self) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def open_prints_folder(self) -> None:
+        from .printer import output_dir
+        os.makedirs(output_dir(), exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(output_dir()))
+
+    def quit_app(self) -> None:
+        self._really_quit = True
+        if not self.isVisible():
+            self.show()
+        if not self.close():
+            self._really_quit = False
+
+    def printer_settings(self) -> None:
+        from .dialogs import PrinterDialog
+        PrinterDialog(self.settings, self).exec()
+
     # ================================================================ Claude
     def _create_assistant(self) -> None:
         from PySide6.QtWidgets import QDockWidget
@@ -1489,8 +1581,8 @@ class MainWindow(QMainWindow):
 
     # ==================================================================== info
     def about(self) -> None:
-        QMessageBox.about(self, "PDF Studio",
-                          f"<h3>PDF Studio {__version__}</h3>"
+        QMessageBox.about(self, "CRN PDF Studio",
+                          f"<h3>CRN PDF Studio {__version__}</h3>"
                           "<p>Lettore ed editor PDF per Windows.</p>"
                           f"<p>Motore: PyMuPDF {pymupdf.VersionBind} / MuPDF {pymupdf.VersionFitz}<br>"
                           "Interfaccia: Qt (PySide6)</p>")

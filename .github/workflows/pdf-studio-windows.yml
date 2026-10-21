@@ -1,4 +1,4 @@
-name: PDF Studio - build Windows
+name: CRN PDF Studio - build Windows
 
 on:
   push:
@@ -48,10 +48,22 @@ jobs:
           $env:PATH = "$($gs.FullName);$env:PATH"
           python -m pytest -q tests
 
+      - name: Test stampante virtuale
+        continue-on-error: true
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_printer.ps1
+          Get-Printer -Name "CRN PDF" | Format-List Name,DriverName,PortName
+          "Prova di stampa CRN PDF Studio" | Out-Printer -Name "CRN PDF"
+          $port = Join-Path $env:ProgramData "CRN PDF Studio\spool\stampa.pdf"
+          for ($i = 0; $i -lt 60 -and -not (Test-Path $port); $i++) { Start-Sleep -Seconds 1 }
+          Start-Sleep -Seconds 2
+          python -c "import sys, pymupdf; from pdfstudio import printer as P; p = sys.argv[1]; ok = P.is_complete_pdf(p); t = pymupdf.open(p)[0].get_text() if ok else ''; print('PDF completo:', ok, '| testo:', t.strip()); sys.exit(0 if 'Prova di stampa' in t else 1)" "$port"
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\uninstall_printer.ps1
+
       - name: Crea eseguibile
         run: >
           pyinstaller --noconfirm --clean --windowed
-          --name PDFStudio --icon assets\pdfstudio.ico
+          --name CRNPDFStudio --icon assets\pdfstudio.ico
           --add-data "assets;assets"
           --collect-submodules keyring
           --collect-data ezdxf
@@ -60,16 +72,19 @@ jobs:
       - name: Includi Ghostscript
         run: |
           $gsroot = (Get-ChildItem "$env:ProgramFiles\gs\gs*" | Select-Object -First 1).FullName
-          New-Item -ItemType Directory -Force dist\PDFStudio\ghostscript | Out-Null
-          Copy-Item -Recurse "$gsroot\bin" dist\PDFStudio\ghostscript\bin
-          Copy-Item -Recurse "$gsroot\lib" dist\PDFStudio\ghostscript\lib
-          if (Test-Path "$gsroot\iccprofiles") { Copy-Item -Recurse "$gsroot\iccprofiles" dist\PDFStudio\ghostscript\iccprofiles }
-          Copy-Item "$gsroot\doc\COPYING" dist\PDFStudio\ghostscript\ -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force dist\CRNPDFStudio\ghostscript | Out-Null
+          Copy-Item -Recurse "$gsroot\bin" dist\CRNPDFStudio\ghostscript\bin
+          Copy-Item -Recurse "$gsroot\lib" dist\CRNPDFStudio\ghostscript\lib
+          if (Test-Path "$gsroot\iccprofiles") { Copy-Item -Recurse "$gsroot\iccprofiles" dist\CRNPDFStudio\ghostscript\iccprofiles }
+          Copy-Item "$gsroot\doc\COPYING" dist\CRNPDFStudio\ghostscript\ -ErrorAction SilentlyContinue
+
+      - name: Includi script della stampante
+        run: Copy-Item -Recurse tools dist\CRNPDFStudio\tools
 
       - name: Verifica eseguibile (PDF/A con Ghostscript incluso)
         run: |
           $env:PATH = "C:\Windows\System32;C:\Windows"
-          dist\PDFStudio\ghostscript\bin\gswin64c.exe -v
+          dist\CRNPDFStudio\ghostscript\bin\gswin64c.exe -v
 
       - name: Crea installer
         run: |
@@ -81,7 +96,7 @@ jobs:
         run: |
           $v = python -c "import pdfstudio; print(pdfstudio.__version__)"
           "version=$v" >> $env:GITHUB_OUTPUT
-          Compress-Archive -Path dist\PDFStudio\* -DestinationPath "dist\PDFStudio-portabile-$v.zip"
+          Compress-Archive -Path dist\CRNPDFStudio\* -DestinationPath "dist\CRNPDFStudio-portabile-$v.zip"
 
       - name: Pubblica release
         if: startsWith(github.ref, 'refs/tags/v') || inputs.release
@@ -89,21 +104,21 @@ jobs:
         with:
           tag_name: v${{ steps.pkg.outputs.version }}
           target_commitish: ${{ github.sha }}
-          name: PDF Studio ${{ steps.pkg.outputs.version }}
+          name: CRN PDF Studio ${{ steps.pkg.outputs.version }}
           body_path: pdf_studio/RELEASE_NOTES.md
           files: |
-            pdf_studio/dist/PDFStudio-Setup-*.exe
-            pdf_studio/dist/PDFStudio-portabile-*.zip
+            pdf_studio/dist/CRNPDFStudio-Setup-*.exe
+            pdf_studio/dist/CRNPDFStudio-portabile-*.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PDFStudio-portable
-          path: pdf_studio/dist/PDFStudio
+          name: CRNPDFStudio-portable
+          path: pdf_studio/dist/CRNPDFStudio
 
       - uses: actions/upload-artifact@v4
         with:
-          name: PDFStudio-Setup
-          path: pdf_studio/dist/PDFStudio-Setup-*.exe
+          name: CRNPDFStudio-Setup
+          path: pdf_studio/dist/CRNPDFStudio-Setup-*.exe
 
   pdfa-validation:
     # Valida i PDF/A prodotti con veraPDF, il validatore di riferimento

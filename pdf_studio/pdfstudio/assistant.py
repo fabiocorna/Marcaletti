@@ -39,7 +39,7 @@ QUICK_PROMPTS = {
     "Traduci in inglese": "Traduci in inglese il testo della pagina corrente, mostrando la traduzione qui.",
 }
 
-SYSTEM_PROMPT = """Sei l'assistente integrato in PDF Studio, un editor PDF per Windows usato in uno studio \
+SYSTEM_PROMPT = """Sei l'assistente integrato in CRN PDF Studio, un editor PDF per Windows usato in uno studio \
 tecnico italiano. Rispondi in italiano, in modo conciso e pratico.
 
 Hai a disposizione strumenti per leggere e modificare il PDF aperto. Indicazioni:

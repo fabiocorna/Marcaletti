@@ -18,7 +18,7 @@ def build(transparency: bool = True) -> PdfDocument:
     p = d.page(0)
     p.insert_text((72, 90), "Relazione tecnica - prova PDF/A", fontsize=18)
     d.add_text_box(0, pymupdf.Rect(72, 120, 520, 300),
-                   "Testo aggiunto con PDF Studio: àèìòù €. " * 6, fontsize=11)
+                   "Testo aggiunto con CRN PDF Studio: àèìòù €. " * 6, fontsize=11)
     d.add_note(0, pymupdf.Point(400, 90), "Nota di prova")
     d.add_shape(0, "rect", pymupdf.Rect(72, 320, 300, 400), color=(1, 0, 0))
     d.add_ink(0, [[(80, 450), (150, 500), (220, 440)]])

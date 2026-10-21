@@ -638,3 +638,105 @@ class DxfDialog(QDialog):
         return DxfOptions(scale=self.scale.value(), units=self.units.currentData(),
                           include_text=self.text.isChecked(), include_fills=self.fills.isChecked(),
                           include_annotations=self.annots.isChecked(), detect_circles=self.circles.isChecked())
+
+
+class PrinterDialog(QDialog):
+    """Stato e installazione della stampante virtuale «CRN PDF»."""
+
+    RUN_KEY = r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run"
+
+    def __init__(self, settings, parent=None):
+        super().__init__(parent)
+        import sys
+        from . import printer
+        self.settings = settings
+        self.printer = printer
+        self.setWindowTitle("Stampante virtuale «CRN PDF»")
+        self.resize(520, 360)
+        lay = QVBoxLayout(self)
+        intro = QLabel("<p>Con la stampante <b>CRN PDF</b> puoi creare un PDF da qualsiasi programma "
+                       "(Word, Excel, AutoCAD, programmi di calcolo, browser…): scegli <i>Stampa</i> e "
+                       "seleziona la stampante «CRN PDF». Il PDF si apre subito in CRN PDF Studio ed è "
+                       f"salvato in:<br><code>{printer.output_dir()}</code></p>")
+        intro.setWordWrap(True)
+        intro.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(intro)
+        self.status = QLabel()
+        lay.addWidget(self.status)
+        row = QHBoxLayout()
+        self.install_btn = QPushButton("Installa / ripara")
+        self.install_btn.clicked.connect(lambda: self._run("install_printer.ps1"))
+        self.remove_btn = QPushButton("Rimuovi")
+        self.remove_btn.clicked.connect(lambda: self._run("uninstall_printer.ps1"))
+        folder = QPushButton("Apri cartella stampe")
+        folder.clicked.connect(self._open_folder)
+        row.addWidget(self.install_btn)
+        row.addWidget(self.remove_btn)
+        row.addStretch()
+        row.addWidget(folder)
+        lay.addLayout(row)
+        self.tray = QCheckBox("Alla chiusura resta attivo nell'area di notifica (necessario per ricevere le stampe)")
+        self.tray.setChecked(settings.value("keep_in_tray", True, type=bool))
+        lay.addWidget(self.tray)
+        self.autostart = QCheckBox("Avvia con Windows (nascosto, pronto a ricevere le stampe)")
+        # Solo per il programma installato (eseguibile), non avviando dai sorgenti
+        self.autostart.setEnabled(sys.platform == "win32" and getattr(sys, "frozen", False))
+        self.autostart.setChecked(self._autostart_enabled())
+        lay.addWidget(self.autostart)
+        lay.addStretch()
+        box = QDialogButtonBox(QDialogButtonBox.Close)
+        box.button(QDialogButtonBox.Close).setText("Chiudi")
+        box.rejected.connect(self.reject)
+        lay.addWidget(box)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        import sys
+        if sys.platform != "win32":
+            self.status.setText("La stampante virtuale è disponibile solo su Windows.")
+            self.install_btn.setEnabled(False)
+            self.remove_btn.setEnabled(False)
+            return
+        ok = self.printer.is_installed()
+        self.status.setText("Stato: <b style='color:#2e7d32'>✔ installata</b>" if ok else
+                            "Stato: <b style='color:#b00020'>non installata</b> — premi «Installa» "
+                            "(serve l'autorizzazione di amministratore)")
+        self.remove_btn.setEnabled(ok)
+
+    def _run(self, script: str) -> None:
+        from PySide6.QtWidgets import QApplication, QMessageBox
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            done = self.printer.run_elevated(script)
+        except Exception as exc:
+            done = False
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "Stampante virtuale", str(exc))
+        else:
+            QApplication.restoreOverrideCursor()
+            if not done:
+                QMessageBox.warning(self, "Stampante virtuale", "Operazione annullata o non riuscita.")
+        self._refresh()
+
+    def _open_folder(self) -> None:
+        import os
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        os.makedirs(self.printer.output_dir(), exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(self.printer.output_dir()))
+
+    def _autostart_enabled(self) -> bool:
+        from PySide6.QtCore import QSettings
+        return bool(QSettings(self.RUN_KEY, QSettings.NativeFormat).value("CRN PDF Studio"))
+
+    def done(self, r) -> None:
+        import sys
+        self.settings.setValue("keep_in_tray", self.tray.isChecked())
+        if self.autostart.isEnabled() and self.autostart.isChecked() != self._autostart_enabled():
+            from PySide6.QtCore import QSettings
+            run = QSettings(self.RUN_KEY, QSettings.NativeFormat)
+            if self.autostart.isChecked():
+                run.setValue("CRN PDF Studio", f'"{sys.executable}" --background')
+            else:
+                run.remove("CRN PDF Studio")
+        super().done(r)

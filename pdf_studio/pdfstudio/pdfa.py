@@ -87,7 +87,7 @@ def convert_to_pdfa(pdf_bytes: bytes, out_path: str, level: int = 2, title: str 
     gs = find_ghostscript()
     if not gs:
         raise PdfAError("Ghostscript non trovato. Installarlo da https://ghostscript.com/releases/gsdnld.html "
-                        "oppure usare l'installer completo di PDF Studio, che lo include.")
+                        "oppure usare l'installer completo di CRN PDF Studio, che lo include.")
     # Ghostscript non accetta PDF cifrati: lavora su una copia in chiaro e senza JavaScript
     src = pymupdf.open("pdf", pdf_bytes)
     if src.is_encrypted:

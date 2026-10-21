@@ -1,5 +1,5 @@
-"""PDF Studio — lettore ed editor PDF per Windows."""
-__version__ = "1.2.0"
+"""CRN PDF Studio — lettore ed editor PDF per Windows."""
+__version__ = "1.3.0"
 
 # Assistente Claude: disattivato in questa versione (il codice resta pronto per una release futura)
 CLAUDE_ENABLED = False

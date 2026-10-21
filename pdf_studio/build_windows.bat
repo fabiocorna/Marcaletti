@@ -1,5 +1,5 @@
 @echo off
-REM Crea l'eseguibile Windows di PDF Studio in dist\PDFStudio\PDFStudio.exe
+REM Crea l'eseguibile Windows di CRN PDF Studio in dist\CRNPDFStudio\CRNPDFStudio.exe
 REM Requisiti: Python 3.10+ per Windows (https://www.python.org/downloads/)
 setlocal
 cd /d "%~dp0"
@@ -14,13 +14,14 @@ python -m pip install -r requirements-dev.txt || goto :error
 python -m pytest -q tests || goto :error
 
 pyinstaller --noconfirm --clean --windowed ^
-    --name PDFStudio ^
+    --name CRNPDFStudio ^
     --icon assets\pdfstudio.ico ^
     --add-data "assets;assets" ^
     main.py || goto :error
 
 echo.
-echo Fatto! Eseguibile: dist\PDFStudio\PDFStudio.exe
+xcopy /E /I /Y tools dist\CRNPDFStudio\tools >nul
+echo Fatto! Eseguibile: dist\CRNPDFStudio\CRNPDFStudio.exe
 echo Per creare l'installer apri installer.iss con Inno Setup (https://jrsoftware.org/isinfo.php).
 goto :eof
 

@@ -1,4 +1,4 @@
-# PDF Studio
+# CRN PDF Studio
 
 Lettore ed editor PDF per Windows, in stile Adobe Acrobat. Scritto in Python con
 [PyMuPDF](https://pymupdf.readthedocs.io/) (motore MuPDF) e Qt (PySide6).
@@ -27,6 +27,13 @@ Lettore ed editor PDF per Windows, in stile Adobe Acrobat. Scritto in Python con
 - Mostra i firmatari (nome, codice fiscale, certificatore, data della firma) e verifica che il
   documento non sia stato modificato dopo la firma
 - Se il contenuto non è un PDF (es. fattura XML) lo estrae e lo salva
+
+**Stampante virtuale «CRN PDF»**
+- Installata insieme al programma: da Word, Excel, AutoCAD, programmi di calcolo, browser… si sceglie
+  *Stampa* → stampante **CRN PDF** e si ottiene un PDF con testo selezionabile
+- Il PDF si apre subito in CRN PDF Studio ed è salvato in `Documenti\CRN PDF Studio\Stampe`
+- Il programma resta attivo nell'area di notifica (accanto all'orologio) per ricevere le stampe e
+  può avviarsi con Windows; gestione da *File → Stampante virtuale «CRN PDF»*
 
 **Esportazione in DXF (CAD)**
 - *File → Esporta → Esporta in DXF*: i disegni vettoriali (piante, tavole, schemi) diventano un DXF
@@ -82,9 +89,9 @@ py -3 main.py [file.pdf]
 ## Creare l'eseguibile per Windows
 
 1. Installare Python 3.10+ per Windows.
-2. Eseguire `build_windows.bat` → crea `dist\PDFStudio\PDFStudio.exe` (cartella portabile).
+2. Eseguire `build_windows.bat` → crea `dist\CRNPDFStudio\CRNPDFStudio.exe` (cartella portabile).
 3. (Facoltativo) Aprire `installer.iss` con [Inno Setup 6](https://jrsoftware.org/isinfo.php) e compilare:
-   si ottiene `dist\PDFStudio-Setup-1.0.0.exe`, con collegamenti nel menu Start e
+   si ottiene `dist\CRNPDFStudio-Setup-1.0.0.exe`, con collegamenti nel menu Start e
    associazione facoltativa dei file `.pdf`.
 
 In alternativa, il workflow GitHub Actions `.github/workflows/pdf-studio-windows.yml` compila
