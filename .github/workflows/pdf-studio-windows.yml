@@ -2,6 +2,8 @@ name: PDF Studio - build Windows
 
 on:
   push:
+    branches:
+      - "**"
     tags:
       - "v*"
     paths:
