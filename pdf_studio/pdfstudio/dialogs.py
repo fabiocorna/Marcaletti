@@ -47,7 +47,7 @@ class TextDialog(QDialog):
     """Inserimento o modifica di testo."""
 
     def __init__(self, parent=None, title="Aggiungi testo", text="", fontsize=12.0, color=QColor("black"),
-                 fontname="helv", show_flatten=True):
+                 fontname="helv", show_flatten=True, allow_original=False):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.resize(420, 280)
@@ -56,9 +56,11 @@ class TextDialog(QDialog):
         lay.addWidget(self.edit)
         form = QFormLayout()
         self.font = QComboBox()
+        if allow_original:
+            self.font.addItem("Font originale del documento", None)
         for label, code in BASE14.items():
             self.font.addItem(label, code)
-        idx = self.font.findData(fontname)
+        idx = 0 if allow_original else self.font.findData(fontname)
         self.font.setCurrentIndex(max(idx, 0))
         self.size = QDoubleSpinBox(minimum=4, maximum=200, value=round(fontsize, 1), decimals=1)
         self.color = ColorButton(color)
@@ -505,3 +507,73 @@ class NewDocumentDialog(QDialog):
     def values(self) -> tuple[float, float, int]:
         w, h = self.SIZES[self.size.currentText()]
         return w, h, self.pages.value()
+
+
+class FindReplaceDialog(QDialog):
+    def __init__(self, parent=None, find_text=""):
+        super().__init__(parent)
+        self.setWindowTitle("Trova e sostituisci")
+        form = QFormLayout(self)
+        self.find = QLineEdit(find_text)
+        self.replace = QLineEdit()
+        self.case = QCheckBox("Maiuscole/minuscole")
+        self.case.setChecked(True)
+        self.current_only = QCheckBox("Solo nella pagina corrente")
+        form.addRow("Trova:", self.find)
+        form.addRow("Sostituisci con:", self.replace)
+        form.addRow(self.case)
+        form.addRow(self.current_only)
+        form.addRow(QLabel("<small>Il testo sostituito mantiene font, dimensione e colore originali.</small>"))
+        box = _buttons(self)
+        box.button(QDialogButtonBox.Ok).setText("Sostituisci tutto")
+        form.addRow(box)
+
+
+class PdfADialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        from .pdfa import LEVELS
+        self.setWindowTitle("Salva come PDF/A")
+        form = QFormLayout(self)
+        self.level = QComboBox()
+        for label, lvl in LEVELS.items():
+            self.level.addItem(label, lvl)
+        self.level.setCurrentIndex(1)
+        form.addRow("Formato:", self.level)
+        form.addRow(QLabel("<small>PDF/A è il formato per l'archiviazione a lungo termine e la conservazione "
+                           "sostitutiva. I font vengono incorporati, i colori convertiti in sRGB e la "
+                           "protezione con password rimossa.<br>Per pratiche, PEC e portali della PA è in "
+                           "genere richiesto PDF/A-1b o PDF/A-2b.</small>", wordWrap=True))
+        form.addRow(_buttons(self))
+
+
+class SignaturesDialog(QDialog):
+    """Esito della verifica delle firme di un file .p7m."""
+
+    def __init__(self, filename: str, signers, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Firme digitali")
+        self.resize(520, 360)
+        lay = QVBoxLayout(self)
+        ok = signers and all(s.integrity_ok for s in signers)
+        head = QLabel(f"<h3>{'✔' if ok else '✘'} {filename}</h3>"
+                      f"<p>{len(signers)} firma/e trovate. "
+                      + ("Tutte le firme sono integre: il documento non è stato modificato dopo la firma."
+                         if ok else "<b style='color:#b00020'>Attenzione: almeno una firma non è valida.</b>")
+                      + "</p>")
+        head.setWordWrap(True)
+        lay.addWidget(head)
+        from PySide6.QtWidgets import QTextBrowser
+        body = QTextBrowser()
+        body.setHtml("<hr>".join(s.summary() for s in signers))
+        lay.addWidget(body)
+        note = QLabel("<small>Verificata l'integrità crittografica. L'appartenenza del certificatore "
+                      "all'elenco pubblico dei certificatori (AgID/eIDAS) e lo stato di revoca non sono "
+                      "controllati: per una verifica con valore legale usare un servizio di verifica "
+                      "ufficiale.</small>")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        box = QDialogButtonBox(QDialogButtonBox.Close)
+        box.rejected.connect(self.reject)
+        box.button(QDialogButtonBox.Close).setText("Chiudi")
+        lay.addWidget(box)

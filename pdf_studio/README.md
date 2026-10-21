@@ -14,8 +14,32 @@ Lettore ed editor PDF per Windows, in stile Adobe Acrobat. Scritto in Python con
 - Apre anche immagini, XPS, EPUB (convertiti in PDF); trascinamento dei file sulla finestra
 - Documenti protetti da password, stampa, file recenti
 
-**Modifica e commenti** (barra a sinistra)
-- Modifica del testo esistente (clic sulla riga → nuovo testo, dimensione, colore)
+**Modifica del testo esistente**
+- Strumento *Modifica testo*: clic su un paragrafo e si scrive direttamente sulla pagina, come in Word;
+  il testo va a capo da solo e mantiene allineamento (anche giustificato) e interlinea
+- Usa il font originale: quello incorporato nel PDF, oppure lo stesso font installato in Windows
+  (Arial, Calibri, Times…); solo se manca usa il più simile, sempre incorporato nel file
+- Maiusc+clic: modifica di una singola riga con scelta di carattere, dimensione e colore
+- **Trova e sostituisci** in tutto il documento (Ctrl+H), mantenendo lo stile del testo
+
+**File firmati digitalmente (.p7m)**
+- Apre i file CAdES `.p7m` (anche con più firme annidate, formato DER, PEM o Base64)
+- Mostra i firmatari (nome, codice fiscale, certificatore, data della firma) e verifica che il
+  documento non sia stato modificato dopo la firma
+- Se il contenuto non è un PDF (es. fattura XML) lo estrae e lo salva
+
+**PDF/A**
+- *File → Salva come PDF/A*: PDF/A-1b, 2b (consigliato) e 3b tramite Ghostscript, incluso nell'installer
+- Riconosce i file PDF/A aperti (indicato nella barra di stato)
+
+**Assistente Claude** (menu *Claude* o Ctrl+Maiusc+A)
+- Domande sul documento: riassunti, estrazione dati, controllo errori, traduzioni
+- Modifiche su richiesta: sostituire testo, riscrivere paragrafi, evidenziare, aggiungere note,
+  compilare moduli, ruotare o eliminare pagine — tutte annullabili con Ctrl+Z
+- Richiede una chiave API di Anthropic (console.anthropic.com), salvata nel Gestore credenziali
+  di Windows; il documento viene inviato ad Anthropic solo quando si usa l'assistente
+
+**Commenti e disegno** (barra a sinistra)
 - Aggiungi testo (nel contenuto della pagina o come commento modificabile)
 - Evidenzia, sottolinea, barra il testo; note adesive
 - Disegno a mano libera, rettangoli, ellissi, linee, frecce (colore e spessore regolabili)
@@ -71,11 +95,16 @@ python -m pytest -q tests
 | `pdfstudio/document.py` | Tutte le operazioni sul PDF (senza interfaccia), annulla/ripeti |
 | `pdfstudio/viewer.py` | Visualizzatore pagine e gestione degli strumenti col mouse |
 | `pdfstudio/thumbnails.py` | Pannello miniature con riordino |
+| `pdfstudio/textedit.py` | Modifica del testo esistente: paragrafi, righe, trova e sostituisci, scelta dei font |
+| `pdfstudio/p7m.py` | Lettura e verifica dei file firmati .p7m |
+| `pdfstudio/pdfa.py` | Conversione e controllo PDF/A (Ghostscript) |
+| `pdfstudio/assistant.py` | Strumenti e conversazione dell'assistente Claude |
+| `pdfstudio/assistant_panel.py` | Pannello laterale dell'assistente |
 | `pdfstudio/dialogs.py` | Finestre di dialogo (testo, firma, filigrana, password…) |
 | `pdfstudio/mainwindow.py` | Finestra principale, menu e barre degli strumenti |
 
 ## Licenza
 
-PyMuPDF/MuPDF sono distribuiti con licenza **AGPL-3.0**: va bene per uso personale e
+PyMuPDF/MuPDF e Ghostscript (incluso per il PDF/A) sono distribuiti con licenza **AGPL-3.0**: va bene per uso personale e
 interno, ma per distribuire o vendere il programma a terzi come software chiuso serve una
 licenza commerciale di Artifex (oppure rilasciare il codice sotto AGPL).

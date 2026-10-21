@@ -25,14 +25,38 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      - name: Installa Ghostscript (per PDF/A)
+        run: choco install ghostscript --no-progress -y
+
       - name: Test
-        run: python -m pytest -q tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $gs = Get-ChildItem "$env:ProgramFiles\gs\gs*\bin" | Select-Object -First 1
+          $env:PATH = "$($gs.FullName);$env:PATH"
+          python -m pytest -q tests
 
       - name: Crea eseguibile
         run: >
           pyinstaller --noconfirm --clean --windowed
           --name PDFStudio --icon assets\pdfstudio.ico
-          --add-data "assets;assets" main.py
+          --add-data "assets;assets"
+          --collect-submodules keyring
+          main.py
+
+      - name: Includi Ghostscript
+        run: |
+          $gsroot = (Get-ChildItem "$env:ProgramFiles\gs\gs*" | Select-Object -First 1).FullName
+          New-Item -ItemType Directory -Force dist\PDFStudio\ghostscript | Out-Null
+          Copy-Item -Recurse "$gsroot\bin" dist\PDFStudio\ghostscript\bin
+          Copy-Item -Recurse "$gsroot\lib" dist\PDFStudio\ghostscript\lib
+          if (Test-Path "$gsroot\iccprofiles") { Copy-Item -Recurse "$gsroot\iccprofiles" dist\PDFStudio\ghostscript\iccprofiles }
+          Copy-Item "$gsroot\doc\COPYING" dist\PDFStudio\ghostscript\ -ErrorAction SilentlyContinue
+
+      - name: Verifica eseguibile (PDF/A con Ghostscript incluso)
+        run: |
+          $env:PATH = "C:\Windows\System32;C:\Windows"
+          dist\PDFStudio\ghostscript\bin\gswin64c.exe -v
 
       - name: Crea installer
         run: |
@@ -48,3 +72,69 @@ jobs:
         with:
           name: PDFStudio-Setup
           path: pdf_studio/dist/PDFStudio-Setup-*.exe
+
+  pdfa-validation:
+    # Valida i PDF/A prodotti con veraPDF, il validatore di riferimento
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pdf_studio
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Installa dipendenze
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ghostscript
+          pip install PyMuPDF asn1crypto cryptography
+
+      - name: Crea file PDF/A di prova
+        run: python tests/make_pdfa_samples.py "$RUNNER_TEMP/pdfa"
+
+      - name: Installa veraPDF
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSL -o verapdf.zip https://software.verapdf.org/releases/verapdf-installer.zip
+          unzip -q verapdf.zip
+          cat > auto-install.xml <<'EOF'
+          <?xml version="1.0" encoding="UTF-8" standalone="no"?>
+          <AutomatedInstallation langpack="eng">
+            <com.izforge.izpack.panels.htmlhello.HTMLHelloPanel id="welcome"/>
+            <com.izforge.izpack.panels.target.TargetPanel id="install_dir">
+              <installpath>VERAPDF_DIR</installpath>
+            </com.izforge.izpack.panels.target.TargetPanel>
+            <com.izforge.izpack.panels.packs.PacksPanel id="sdk_pack_select">
+              <pack index="0" name="veraPDF GUI" selected="true"/>
+              <pack index="1" name="veraPDF Mac and *nix Scripts" selected="true"/>
+              <pack index="2" name="veraPDF Validation model" selected="false"/>
+              <pack index="3" name="veraPDF Documentation" selected="false"/>
+              <pack index="4" name="veraPDF Sample Plugins" selected="false"/>
+            </com.izforge.izpack.panels.packs.PacksPanel>
+            <com.izforge.izpack.panels.install.InstallPanel id="install"/>
+            <com.izforge.izpack.panels.finish.FinishPanel id="finish"/>
+          </AutomatedInstallation>
+          EOF
+          sed -i "s#VERAPDF_DIR#$RUNNER_TEMP/verapdf#" auto-install.xml
+          java -jar verapdf-greenfield-*/verapdf-izpack-installer-*.jar auto-install.xml
+
+      - name: Valida con veraPDF
+        run: |
+          status=0
+          for f in "$RUNNER_TEMP"/pdfa/*.pdf; do
+            out=$("$RUNNER_TEMP/verapdf/verapdf" --format text "$f" || true)
+            echo "$out"
+            echo "$out" | grep -q '^PASS' || status=1
+          done
+          if [ $status -ne 0 ]; then
+            for f in "$RUNNER_TEMP"/pdfa/*.pdf; do "$RUNNER_TEMP/verapdf/verapdf" --format text -v "$f" | head -60 || true; done
+          fi
+          exit $status

@@ -74,6 +74,9 @@ class PdfDocument:
         self.modified = False
         # (owner_pw, user_pw) da riapplicare al salvataggio, oppure None
         self.encryption: tuple[str, str] | None = None
+        self.display_name: str | None = None      # nome mostrato se il file non ha percorso (es. da .p7m)
+        self.signers: list = []                   # firmatari, se aperto da un file .p7m
+        self.pdfa: str | None = None              # conformità PDF/A dichiarata all'apertura (es. "2B")
         self._undo: list[bytes] = []
         self._redo: list[bytes] = []
 
@@ -96,7 +99,13 @@ class PdfDocument:
             # Carica il file in memoria: su Windows un file tenuto aperto non può
             # essere sovrascritto, e l'utente deve poter salvare sopra l'originale.
             with open(path, "rb") as f:
-                return cls(pymupdf.open("pdf", f.read()), path)
+                d = cls(pymupdf.open("pdf", f.read()), path)
+            from .pdfa import pdfa_part
+            try:
+                d.pdfa = pdfa_part(d.doc) if not d.doc.is_encrypted else None
+            except Exception:
+                d.pdfa = None
+            return d
         # Formati non PDF: conversione in memoria
         pdf_bytes = src.convert_to_pdf()
         src.close()
@@ -118,6 +127,19 @@ class PdfDocument:
         return True
 
     @classmethod
+    def from_p7m(cls, path: str) -> tuple["PdfDocument | None", "object"]:
+        """Apre un file firmato .p7m. Ritorna (documento o None se non è un PDF, contenuto)."""
+        from .p7m import read_p7m_file
+        content = read_p7m_file(path)
+        if not content.is_pdf:
+            return None, content
+        d = cls(pymupdf.open("pdf", content.data), None)
+        d.display_name = content.filename if content.filename.lower().endswith(".pdf") \
+            else content.filename + ".pdf"
+        d.signers = content.signers
+        return d, content
+
+    @classmethod
     def from_images(cls, paths: Sequence[str]) -> "PdfDocument":
         doc = pymupdf.open()
         for p in paths:
@@ -136,7 +158,9 @@ class PdfDocument:
 
     @property
     def title(self) -> str:
-        return os.path.basename(self.path) if self.path else "Senza titolo.pdf"
+        if self.path:
+            return os.path.basename(self.path)
+        return self.display_name or "Senza titolo.pdf"
 
     def page(self, index: int) -> pymupdf.Page:
         return self.doc[index]
@@ -468,23 +492,46 @@ class PdfDocument:
         return best
 
     def replace_span(self, span: TextSpan, new_text: str, fontsize: float | None = None,
-                     color=None, fontname: str | None = None) -> None:
-        """Sostituisce il testo di uno span: cancella l'originale e riscrive il nuovo."""
+                     color=None, fontname: str | None = None) -> str:
+        """Sostituisce il testo di uno span sulla stessa linea di base.
+        Ritorna l'origine del font usato ("incorporato", "sistema", "standard")."""
+        from . import textedit
         self.checkpoint()
-        page = self.doc[span.page]
-        r = pymupdf.Rect(span.bbox)
-        # Riduce leggermente il riquadro per non toccare le righe adiacenti
-        shrink = r.height * 0.2
-        r.y0 += shrink
-        r.y1 -= shrink
-        page.add_redact_annot(r, fill=False)
-        page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
-                              graphics=getattr(pymupdf, "PDF_REDACT_LINE_ART_NONE", 0))
-        if new_text:
-            page.insert_text(span.origin, new_text, fontsize=fontsize or span.size,
-                             fontname=fontname or guess_base14(span.font, span.flags),
-                             color=color if color is not None else span.color,
-                             rotate=page.rotation)
+        if fontname:  # font scelto esplicitamente dall'utente
+            page = self.doc[span.page]
+            r = pymupdf.Rect(span.bbox)
+            shrink = r.height * 0.2
+            r.y0 += shrink
+            r.y1 -= shrink
+            textedit._remove_text(page, r)
+            if new_text:
+                page.insert_text(span.origin, new_text, fontsize=fontsize or span.size, fontname=fontname,
+                                 color=color if color is not None else span.color, rotate=page.rotation)
+            return "standard"
+        choice = textedit.replace_line_span(self.doc, span.page, span.bbox, span.origin, span.font, span.flags,
+                                            fontsize or span.size, color if color is not None else span.color,
+                                            new_text)
+        return choice.source if choice else ""
+
+    def block_at(self, index: int, point: pymupdf.Point):
+        from . import textedit
+        return textedit.block_at(self.doc, index, point)
+
+    def replace_block(self, block, new_text: str, fontsize: float | None = None, color=None,
+                      align: str | None = None) -> dict:
+        """Riscrive un intero paragrafo con a capo automatico e font originale."""
+        from . import textedit
+        self.checkpoint()
+        return textedit.replace_block(self.doc, block, new_text, fontsize, color, align)
+
+    def find_replace(self, query: str, replacement: str, pages=None, match_case: bool = True) -> int:
+        from . import textedit
+        hits = sum(len(self.doc[p].search_for(query)) for p in (pages if pages is not None
+                                                                   else range(self.page_count)))
+        if not hits:
+            return 0
+        self.checkpoint()
+        return textedit.find_replace(self.doc, query, replacement, pages, match_case)
 
     # --------------------------------------------------------------- strumenti
     def search(self, query: str) -> list[tuple[int, pymupdf.Rect]]:

@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import pymupdf
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QCursor, QImage, QPainter, QPainterPath, QPen, QPixmap
+import re
+
+from PySide6.QtGui import (QBrush, QColor, QCursor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap,
+                           QTextBlockFormat, QTextCursor, QTextOption)
 from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem,
-                               QGraphicsScene, QGraphicsView)
+                               QGraphicsScene, QGraphicsTextItem, QGraphicsView)
 
 from .document import PdfDocument
 
@@ -30,6 +33,35 @@ def pixmap_to_qimage(pix: pymupdf.Pixmap) -> QImage:
     return img.copy()  # stacca i dati dal buffer di PyMuPDF
 
 
+def qt_font_family(pdf_font: str) -> str:
+    """'ABCDEF+TimesNewRomanPS-BoldMT' → 'Times New Roman' (per l'anteprima di modifica)."""
+    name = re.sub(r"^[A-Z]{6}\+", "", pdf_font or "")
+    name = re.split(r"[-,]", name)[0]
+    name = re.sub(r"(PSMT|MT|PS)$", "", name)
+    if " " not in name:
+        name = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name)
+    name = re.sub(r"\s+(Regular|Bold|Italic|Oblique|Medium|Light|Semibold|Book)\b.*$", "", name).strip()
+    return {"Helvetica": "Arial", "Times": "Times New Roman", "Courier": "Courier New"}.get(name, name)
+
+
+class InlineTextItem(QGraphicsTextItem):
+    """Casella di testo modificabile sovrapposta al paragrafo originale."""
+
+    def __init__(self, on_commit, on_cancel):
+        super().__init__()
+        self._on_commit = on_commit
+        self._on_cancel = on_cancel
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key_Escape:
+            self._on_cancel()
+            return
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter) and event.modifiers() & Qt.ControlModifier:
+            self._on_commit()
+            return
+        super().keyPressEvent(event)
+
+
 class PageView(QGraphicsView):
     """Mostra tutte le pagine in colonna e traduce i gesti in operazioni sul documento."""
 
@@ -38,6 +70,8 @@ class PageView(QGraphicsView):
     # (strumento, indice pagina, dati) — gestiti dalla finestra principale
     toolAction = Signal(str, int, object)
     documentEdited = Signal()
+    # (pagina, blocco, nuovo testo) al termine della modifica diretta di un paragrafo
+    inlineEditFinished = Signal(int, object, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -67,6 +101,7 @@ class PageView(QGraphicsView):
         self._ink_timer = QTimer(self, singleShot=True, interval=1200, timeout=self._commit_ink)
         self._render_timer = QTimer(self, singleShot=True, interval=30, timeout=self._render_visible)
         self._current_page = 0
+        self._inline = None  # (pagina, blocco, sfondo, casella)
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
         self.setAcceptDrops(False)
 
@@ -75,6 +110,7 @@ class PageView(QGraphicsView):
         pos = self.verticalScrollBar().value() if keep_position else 0
         page = self._current_page if keep_position else 0
         self._commit_ink()
+        self.cancel_inline_edit()
         self.document = document
         self._rebuild()
         if keep_position:
@@ -287,8 +323,76 @@ class PageView(QGraphicsView):
             self._search_items.append(item)
 
     # ------------------------------------------------------------------ strumenti
+    # ------------------------------------------------------- modifica diretta
+    @property
+    def inline_editing(self) -> bool:
+        return self._inline is not None
+
+    def start_inline_edit(self, index: int, block) -> None:
+        self.commit_inline_edit()
+        rect = self._doc_rect_to_scene(index, block.bbox)
+        pad = 3
+        bg = self.scene().addRect(rect.adjusted(-pad, -pad, pad, pad), QPen(QColor(0, 120, 215), 1, Qt.DashLine),
+                                  QBrush(Qt.white))
+        bg.setZValue(20)
+        item = InlineTextItem(self.commit_inline_edit, self.cancel_inline_edit)
+        font = QFont(qt_font_family(block.font))
+        font.setPixelSize(max(4, round(block.size * self.zoom)))
+        font.setBold(block.bold)
+        font.setItalic(block.italic)
+        item.setFont(font)
+        item.setDefaultTextColor(QColor.fromRgbF(*block.color))
+        item.document().setDocumentMargin(0)
+        item.setPlainText(block.text)
+        item.setTextWidth(rect.width() + 2)
+        fmt = QTextBlockFormat()
+        fmt.setLineHeight(block.line_height * 100, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
+        fmt.setAlignment({"center": Qt.AlignHCenter, "right": Qt.AlignRight,
+                          "justify": Qt.AlignJustify}.get(block.align, Qt.AlignLeft))
+        cur = QTextCursor(item.document())
+        cur.select(QTextCursor.Document)
+        cur.mergeBlockFormat(fmt)
+        item.setPos(rect.topLeft())
+        item.setZValue(21)
+
+        def grow():
+            # Lo sfondo bianco segue il testo che si allunga
+            r = item.sceneBoundingRect().united(rect)
+            bg.setRect(r.adjusted(-pad, -pad, pad, pad))
+        item.document().contentsChanged.connect(grow)
+        item.setTextInteractionFlags(Qt.TextEditorInteraction)
+        self.scene().addItem(item)
+        item.setFocus()
+        cur = item.textCursor()
+        cur.movePosition(QTextCursor.End)
+        item.setTextCursor(cur)
+        self._inline = (index, block, bg, item)
+        self.setFocus()
+        item.setFocus()
+
+    def commit_inline_edit(self) -> None:
+        if self._inline is None:
+            return
+        index, block, bg, item = self._inline
+        text = item.toPlainText()
+        self._remove_inline()
+        if text.strip() != block.text.strip():
+            self.inlineEditFinished.emit(index, block, text)
+
+    def cancel_inline_edit(self) -> None:
+        if self._inline is not None:
+            self._remove_inline()
+
+    def _remove_inline(self) -> None:
+        _index, _block, bg, item = self._inline
+        self._inline = None
+        for it in (item, bg):
+            if it.scene() is not None:
+                self.scene().removeItem(it)
+
     def set_tool(self, tool: str) -> None:
         self._commit_ink()
+        self.commit_inline_edit()
         self.tool = tool
         if tool == HAND:
             self.setDragMode(QGraphicsView.ScrollHandDrag)
@@ -304,6 +408,13 @@ class PageView(QGraphicsView):
         return (color.redF(), color.greenF(), color.blueF())
 
     def mousePressEvent(self, event) -> None:
+        if self._inline is not None:
+            item = self._inline[3]
+            if item.sceneBoundingRect().contains(self.mapToScene(event.position().toPoint())):
+                super().mousePressEvent(event)
+                return
+            self.commit_inline_edit()
+            return
         if not self.document or event.button() != Qt.LeftButton or self.tool == HAND:
             if self.tool == HAND and self.document and event.button() == Qt.LeftButton:
                 # Clic su un campo modulo con la mano: compila il campo
@@ -321,7 +432,11 @@ class PageView(QGraphicsView):
         if idx < 0:
             return
         if self.tool in CLICK_TOOLS:
-            self.toolAction.emit(self.tool, idx, self._scene_to_doc(idx, sp))
+            data = self._scene_to_doc(idx, sp)
+            if self.tool == EDIT_TEXT and event.modifiers() & Qt.ShiftModifier:
+                self.toolAction.emit("edit_text_dialog", idx, data)
+            else:
+                self.toolAction.emit(self.tool, idx, data)
             return
         if self.tool == INK:
             if self._ink_page not in (-1, idx):
@@ -359,6 +474,9 @@ class PageView(QGraphicsView):
         self._rubber.setZValue(10)
 
     def mouseMoveEvent(self, event) -> None:
+        if self._inline is not None:
+            super().mouseMoveEvent(event)
+            return
         if self._drag_start is None or self._drag_page < 0:
             super().mouseMoveEvent(event)
             return
@@ -374,6 +492,9 @@ class PageView(QGraphicsView):
             self._rubber.setRect(QRectF(self._drag_start, sp).normalized())
 
     def mouseReleaseEvent(self, event) -> None:
+        if self._inline is not None:
+            super().mouseReleaseEvent(event)
+            return
         if self._drag_start is None or self._drag_page < 0:
             super().mouseReleaseEvent(event)
             return

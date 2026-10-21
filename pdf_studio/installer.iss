@@ -2,7 +2,7 @@
 ; Prima eseguire build_windows.bat, poi compilare questo file con Inno Setup 6.
 
 #define AppName "PDF Studio"
-#define AppVersion "1.0.0"
+#define AppVersion "1.1.0"
 #define AppExe "PDFStudio.exe"
 
 [Setup]
@@ -29,6 +29,7 @@ Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 Name: "assocpdf"; Description: "Usa PDF Studio per aprire i file PDF"; GroupDescription: "Associazioni file:"; Flags: unchecked
+Name: "assocp7m"; Description: "Usa PDF Studio per aprire i file firmati .p7m"; GroupDescription: "Associazioni file:"
 
 [Files]
 Source: "dist\PDFStudio\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -45,6 +46,8 @@ Root: HKA; Subkey: "Software\Classes\PDFStudio.Document\DefaultIcon"; ValueType:
 Root: HKA; Subkey: "Software\Classes\PDFStudio.Document\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""
 Root: HKA; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: string; ValueName: "PDFStudio.Document"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\.pdf"; ValueType: string; ValueName: ""; ValueData: "PDFStudio.Document"; Tasks: assocpdf; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.p7m\OpenWithProgids"; ValueType: string; ValueName: "PDFStudio.Document"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.p7m"; ValueType: string; ValueName: ""; ValueData: "PDFStudio.Document"; Tasks: assocp7m; Flags: uninsdeletevalue
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent

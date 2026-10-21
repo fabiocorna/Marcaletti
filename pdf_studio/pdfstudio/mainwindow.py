@@ -14,15 +14,16 @@ from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox, QFileDialo
 
 from . import __version__
 from . import viewer as V
-from .dialogs import (CompressDialog, ExportImagesDialog, FormFieldDialog, MergeDialog, MetadataDialog,
+from .dialogs import (CompressDialog, ExportImagesDialog, FindReplaceDialog, FormFieldDialog, MergeDialog,
+                      MetadataDialog, PdfADialog, SignaturesDialog,
                       NewDocumentDialog, PageNumbersDialog, PasswordPrompt, SecurityDialog, SignatureDialog,
                       SplitDialog, TextDialog, WatermarkDialog)
 from .document import IMAGE_EXTENSIONS, PdfDocument, merge_files
 from .thumbnails import ThumbnailList
 from .viewer import PageView
 
-OPEN_FILTER = ("Documenti supportati (*.pdf *.xps *.oxps *.epub *.cbz *.fb2 *.svg "
-               + " ".join("*" + e for e in IMAGE_EXTENSIONS) + ");;PDF (*.pdf);;Tutti i file (*)")
+OPEN_FILTER = ("Documenti supportati (*.pdf *.p7m *.xps *.oxps *.epub *.cbz *.fb2 *.svg "
+               + " ".join("*" + e for e in IMAGE_EXTENSIONS) + ");;PDF (*.pdf);;PDF firmati (*.p7m);;Tutti i file (*)")
 IMAGE_FILTER = "Immagini (" + " ".join("*" + e for e in IMAGE_EXTENSIONS) + ")"
 
 TOOLS = [
@@ -139,6 +140,7 @@ class MainWindow(QMainWindow):
         self._create_menus()
         self._create_toolbars()
         self._create_statusbar()
+        self._create_assistant()
         geo = self.settings.value("geometry")
         if geo is not None:
             self.restoreGeometry(geo)
@@ -184,12 +186,19 @@ class MainWindow(QMainWindow):
         self.a_print = self._act("S&tampa…", self.print_document, QKeySequence.Print, glyph_icon("🖶"))
         self.a_props = self._act("&Proprietà…", self.properties, "Ctrl+D")
         self.a_security = self._act("Proteggi con &password…", self.security, None, glyph_icon("🔒"))
+        self.a_pdfa = self._act("Salva come PDF/&A…", self.save_pdfa, None, glyph_icon("Ⓐ"),
+                                "Converte in PDF/A per archiviazione e conservazione")
+        self.a_signatures = self._act("Verifica &firme digitali…", self.show_signatures, None, glyph_icon("✔"))
+        self.a_claude = self._act("Assistente &Claude", self.toggle_assistant, "Ctrl+Shift+A", glyph_icon("✳", "#d97757"),
+                                  "Chiedi a Claude di analizzare o modificare il documento", checkable=True)
+        self.a_claude_settings = self._act("Impostazioni Claude…", self.claude_settings)
         self.a_close = self._act("&Chiudi scheda", lambda: self.close_tab(self.tabs.currentIndex()), QKeySequence.Close)
         self.a_quit = self._act("&Esci", self.close, QKeySequence.Quit)
 
         self.a_undo = self._act("&Annulla", self.undo, QKeySequence.Undo, glyph_icon("↶"))
         self.a_redo = self._act("&Ripeti", self.redo, QKeySequence.Redo, glyph_icon("↷"))
         self.a_find = self._act("&Trova…", self.focus_search, QKeySequence.Find)
+        self.a_replace = self._act("Trova e &sostituisci…", self.find_replace, "Ctrl+H")
         self.a_copy_page_text = self._act("Copia testo della pagina", self.copy_page_text)
 
         self.a_zoom_in = self._act("Ingrandisci", lambda: self._zoom(1.25), QKeySequence.ZoomIn, glyph_icon("+"))
@@ -246,7 +255,7 @@ class MainWindow(QMainWindow):
             self.tool_group.addAction(a)
             self.tool_actions[key] = a
         self.tool_actions[V.HAND].setChecked(True)
-        self.a_escape = self._act("Strumento mano", lambda: self.set_tool(V.HAND), "Esc")
+        self.a_escape = self._act("Strumento mano", self._escape, "Esc")
         self.addAction(self.a_escape)
 
         self.recent_menu = None
@@ -262,7 +271,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_from_images)
         m.addAction(self.a_merge)
         m.addSeparator()
-        for a in (self.a_save, self.a_save_as, self.a_compress):
+        for a in (self.a_save, self.a_save_as, self.a_pdfa, self.a_compress):
             m.addAction(a)
         exp = m.addMenu("&Esporta")
         for a in (self.a_export_img, self.a_export_txt, self.a_export_docx):
@@ -271,6 +280,7 @@ class MainWindow(QMainWindow):
         m.addAction(self.a_print)
         m.addAction(self.a_props)
         m.addAction(self.a_security)
+        m.addAction(self.a_signatures)
         m.addSeparator()
         m.addAction(self.a_close)
         m.addAction(self.a_quit)
@@ -280,6 +290,7 @@ class MainWindow(QMainWindow):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.a_find)
+        m.addAction(self.a_replace)
         m.addAction(self.a_copy_page_text)
         m.addSeparator()
         m.addAction(self.a_color)
@@ -307,6 +318,10 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         for a in (self.a_watermark, self.a_pagenums, self.a_flatten, self.a_ocr):
             m.addAction(a)
+
+        m = mb.addMenu("&Claude")
+        m.addAction(self.a_claude)
+        m.addAction(self.a_claude_settings)
 
         m = mb.addMenu("&?")
         m.addAction(self.a_about)
@@ -340,6 +355,12 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
         for a in (self.a_rot_l, self.a_rot_r, self.a_ins_file, self.a_del_page, self.a_extract, self.a_merge):
             tb.addAction(a)
+        tb.addSeparator()
+        tb.addAction(self.a_pdfa)
+        tb.addAction(self.a_claude)
+        btn = tb.widgetForAction(self.a_claude)
+        if btn is not None:
+            btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
@@ -423,10 +444,12 @@ class MainWindow(QMainWindow):
                   self.a_rot_r, self.a_del_page, self.a_ins_blank, self.a_ins_file, self.a_dup, self.a_extract,
                   self.a_split, self.a_watermark, self.a_pagenums, self.a_flatten, self.a_ocr, self.a_move_up,
                   self.a_move_down, self.a_prev, self.a_next, self.a_copy_page_text, self.a_uncrop,
+                  self.a_pdfa, self.a_replace,
                   *self.tool_actions.values()):
             a.setEnabled(has)
         self.a_undo.setEnabled(bool(d and d.can_undo))
         self.a_redo.setEnabled(bool(d and d.can_redo))
+        self.a_signatures.setEnabled(bool(d and d.signers))
         self.page_spin.setEnabled(has)
         self.zoom_combo.setEnabled(has)
         self.search_edit.setEnabled(has)
@@ -444,7 +467,10 @@ class MainWindow(QMainWindow):
             page = d.page(min(t.view.current_page, d.page_count - 1))
             w_mm, h_mm = page.rect.width * 25.4 / 72, page.rect.height * 25.4 / 72
             lock = "  🔒" if d.encryption else ""
-            self.status_info.setText(f"{w_mm:.0f} × {h_mm:.0f} mm   {t.view.zoom * 100:.0f}%{lock}")
+            badges = (f"  PDF/A-{d.pdfa}" if d.pdfa else "") + \
+                     (("  ✔ firmato" if all(x.integrity_ok for x in d.signers) else "  ✘ firma non valida")
+                      if d.signers else "")
+            self.status_info.setText(f"{w_mm:.0f} × {h_mm:.0f} mm   {t.view.zoom * 100:.0f}%{lock}{badges}")
         else:
             self.page_total.setText(" / 0 ")
             self.setWindowTitle("PDF Studio")
@@ -487,6 +513,9 @@ class MainWindow(QMainWindow):
                     os.path.normcase(os.path.abspath(w.document.path)) == key:
                 self.tabs.setCurrentIndex(i)
                 return
+        if path.lower().endswith((".p7m", ".p7s")):
+            self._open_p7m(path)
+            return
         try:
             d = PdfDocument.open(path)
         except Exception as exc:
@@ -505,11 +534,47 @@ class MainWindow(QMainWindow):
         self._add_recent(path)
         self._add_tab(d)
 
+    def _open_p7m(self, path: str) -> None:
+        from .p7m import P7MError
+        try:
+            d, content = PdfDocument.from_p7m(path)
+        except P7MError as exc:
+            self._error("File firmato non leggibile", f"{os.path.basename(path)}:\n{exc}")
+            return
+        except Exception as exc:
+            self._error("File firmato non leggibile", f"{os.path.basename(path)}:\n{exc}")
+            return
+        self.settings.setValue("last_dir", os.path.dirname(path))
+        self._add_recent(path)
+        if d is None:
+            # Il contenuto firmato non è un PDF (es. XML, Word): si offre di salvarlo
+            SignaturesDialog(content.filename, content.signers, self).exec()
+            out, _ = QFileDialog.getSaveFileName(self, "Salva il documento estratto",
+                                                 os.path.join(os.path.dirname(path), content.filename))
+            if out:
+                with open(out, "wb") as f:
+                    f.write(content.data)
+                QDesktopServices.openUrl(QUrl.fromLocalFile(out))
+            return
+        self._add_tab(d)
+        ok = content.all_ok
+        self.statusBar().showMessage(
+            f"Documento firmato digitalmente da {', '.join(s.name for s in content.signers)} — "
+            + ("firme integre" if ok else "ATTENZIONE: firma non valida"), 10000)
+        if not ok:
+            SignaturesDialog(content.filename, content.signers, self).exec()
+
+    def show_signatures(self) -> None:
+        d = self.doc()
+        if d and d.signers:
+            SignaturesDialog(d.title, d.signers, self).exec()
+
     def _add_tab(self, d: PdfDocument) -> None:
         t = DocumentTab(d)
         t.view.pageChanged.connect(lambda _p: self._update_ui())
         t.view.zoomChanged.connect(self._sync_zoom_combo)
         t.view.toolAction.connect(self.on_tool_action)
+        t.view.inlineEditFinished.connect(self._inline_edit_done)
         t.thumbs.orderChanged.connect(self.reorder_pages)
         t.thumbs.setContextMenuPolicy(Qt.ActionsContextMenu)
         for a in (self.a_rot_l, self.a_rot_r, self.a_dup, self.a_ins_blank, self.a_ins_file, self.a_extract,
@@ -1175,6 +1240,16 @@ class MainWindow(QMainWindow):
                 else:
                     changed = False
             elif tool == V.EDIT_TEXT:
+                block = d.block_at(page, data)
+                if block is not None:
+                    self.tab().view.start_inline_edit(page, block)
+                    msg = "Modifica il testo, poi clicca fuori dal riquadro (Ctrl+Invio) per applicare, Esc per annullare"
+                    if block.extra.get("mixed_styles"):
+                        msg += " — il paragrafo ha stili misti: verrà usato lo stile prevalente"
+                    self.statusBar().showMessage(msg, 15000)
+                    return
+                tool = "edit_text_dialog"
+            if tool == "edit_text_dialog":
                 span = d.span_at(page, data)
                 if span is None:
                     self.statusBar().showMessage("Nessun testo in questo punto", 3000)
@@ -1182,11 +1257,13 @@ class MainWindow(QMainWindow):
                 else:
                     from .document import guess_base14
                     c = QColor.fromRgbF(*span.color)
-                    dlg = TextDialog(self, "Modifica testo", span.text, span.size, c,
-                                     guess_base14(span.font, span.flags), show_flatten=False)
+                    dlg = TextDialog(self, "Modifica riga di testo", span.text, span.size, c,
+                                     guess_base14(span.font, span.flags), show_flatten=False, allow_original=True)
                     if dlg.exec():
                         v = dlg.values()
-                        d.replace_span(span, v["text"].replace("\n", " "), v["fontsize"], v["color"], v["fontname"])
+                        src = d.replace_span(span, v["text"].replace("\n", " "), v["fontsize"], v["color"],
+                                             v["fontname"])
+                        self._font_message(src)
                     else:
                         changed = False
             elif tool == V.NOTE:
@@ -1248,6 +1325,117 @@ class MainWindow(QMainWindow):
             return
         if changed:
             self._changed(full=False, page=page)
+
+    # =========================================================== testo e PDF/A
+    def _escape(self) -> None:
+        t = self.tab()
+        if t and t.view.inline_editing:
+            t.view.cancel_inline_edit()
+            return
+        self.set_tool(V.HAND)
+
+    def _font_message(self, source: str) -> None:
+        msg = {"incorporato": "Testo modificato con il font originale del documento",
+               "sistema": "Testo modificato con lo stesso font, installato nel sistema",
+               "standard": "Font originale non disponibile: usato il font standard più simile"}.get(source)
+        if msg:
+            self.statusBar().showMessage(msg, 6000)
+
+    def _inline_edit_done(self, page: int, block, text: str) -> None:
+        d = self.doc()
+        if not d:
+            return
+        try:
+            info = d.replace_block(block, text)
+        except Exception as exc:
+            self._error("Modifica non riuscita", exc)
+            return
+        self._changed(full=False, page=page)
+        self._font_message(info.get("source", ""))
+        if not info.get("fits", True):
+            self.statusBar().showMessage("Il testo è più lungo dello spazio disponibile: è stato ridotto", 8000)
+        elif info.get("scale", 1) < 0.99:
+            self.statusBar().showMessage(f"Testo leggermente ridotto ({info['scale'] * 100:.0f}%) per "
+                                         "rientrare nello spazio del paragrafo", 8000)
+
+    def find_replace(self) -> None:
+        d = self._require_doc()
+        if not d:
+            return
+        dlg = FindReplaceDialog(self, self.search_edit.text())
+        if not dlg.exec() or not dlg.find.text():
+            return
+        pages = [self.tab().view.current_page] if dlg.current_only.isChecked() else None
+        try:
+            n = d.find_replace(dlg.find.text(), dlg.replace.text(), pages, dlg.case.isChecked())
+        except Exception as exc:
+            self._error("Sostituzione non riuscita", exc)
+            return
+        if n:
+            self._changed()
+        QMessageBox.information(self, "Trova e sostituisci",
+                                f"Sostituzioni effettuate: {n}" if n else "Testo non trovato.")
+
+    def save_pdfa(self) -> None:
+        d = self._require_doc()
+        if not d:
+            return
+        from . import pdfa
+        if not pdfa.find_ghostscript():
+            self._error("PDF/A", "Per creare file PDF/A serve Ghostscript, incluso nell'installer completo di "
+                                 "PDF Studio.\nIn alternativa installarlo da https://ghostscript.com/releases/")
+            return
+        dlg = PdfADialog(self)
+        if not dlg.exec():
+            return
+        base = os.path.splitext(d.path or os.path.join(self.settings.value("last_dir", ""), d.title))[0]
+        out, _ = QFileDialog.getSaveFileName(self, "Salva come PDF/A", base + "_pdfa.pdf", "PDF (*.pdf)")
+        if not out:
+            return
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            issues = pdfa.convert_to_pdfa(d.to_bytes(encryption=False), out, dlg.level.currentData(),
+                                          d.get_metadata().get("title") or None)
+        except Exception as exc:
+            QApplication.restoreOverrideCursor()
+            self._error("PDF/A", exc)
+            return
+        QApplication.restoreOverrideCursor()
+        part = pdfa.pdfa_part(out) or "?"
+        text = f"Creato {os.path.basename(out)} (PDF/A-{part})."
+        if issues:
+            text += "\n\nAttenzione:\n• " + "\n• ".join(issues)
+        box = QMessageBox(QMessageBox.Warning if issues else QMessageBox.Information, "PDF/A", text,
+                          QMessageBox.Open | QMessageBox.Close, self)
+        box.button(QMessageBox.Open).setText("Apri il file")
+        box.button(QMessageBox.Close).setText("Chiudi")
+        if box.exec() == QMessageBox.Open:
+            self.open_file(out)
+
+    # ================================================================ Claude
+    def _create_assistant(self) -> None:
+        from PySide6.QtWidgets import QDockWidget
+        from .assistant_panel import AssistantPanel
+        self.assistant = AssistantPanel(self.settings, self.doc,
+                                        lambda: self.tab().view.current_page if self.tab() else 0)
+        self.assistant.documentChanged.connect(lambda _p: self._changed())
+        self.assistant.showPage.connect(self._goto)
+        dock = QDockWidget("Assistente Claude", self)
+        dock.setObjectName("claude")
+        dock.setWidget(self.assistant)
+        dock.setMinimumWidth(320)
+        self.addDockWidget(Qt.RightDockWidgetArea, dock)
+        dock.visibilityChanged.connect(self.a_claude.setChecked)
+        dock.hide()
+        self.assistant_dock = dock
+
+    def toggle_assistant(self, checked: bool) -> None:
+        self.assistant_dock.setVisible(checked)
+        if checked:
+            self.assistant.input.setFocus()
+
+    def claude_settings(self) -> None:
+        self.assistant.open_settings()
 
     # ==================================================================== info
     def about(self) -> None:
