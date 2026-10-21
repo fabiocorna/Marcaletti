@@ -49,7 +49,6 @@ jobs:
           python -m pytest -q tests
 
       - name: Test stampante virtuale
-        continue-on-error: true
         run: |
           powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_printer.ps1
           Get-Printer -Name "CRN PDF" | Format-List Name,DriverName,PortName
