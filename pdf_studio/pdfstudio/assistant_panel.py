@@ -289,6 +289,8 @@ class AssistantPanel(QWidget):
         self._worker.text.connect(self._on_text)
         self._worker.done.connect(self._on_done)
         self._worker.failed.connect(self._on_failed)
+        # Il worker viene distrutto nel suo thread quando questo termina
+        self._thread.finished.connect(self._worker.deleteLater)
         self._thread.start()
 
     def _cleanup_thread(self) -> None:

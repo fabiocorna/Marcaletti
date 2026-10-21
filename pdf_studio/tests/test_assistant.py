@@ -135,3 +135,5 @@ def test_panel_tool_loop(monkeypatch):
     second = fake.requests[1]["messages"]
     assert second[-1]["role"] == "user" and second[-1]["content"][0]["type"] == "tool_result"
     assert ("assistant", "Fatto: data aggiornata.") in panel._transcript
+    panel.deleteLater()
+    QTest.qWait(50)
