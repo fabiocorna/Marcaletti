@@ -32,7 +32,7 @@ Lettore ed editor PDF per Windows, in stile Adobe Acrobat. Scritto in Python con
 - *File → Salva come PDF/A*: PDF/A-1b, 2b (consigliato) e 3b tramite Ghostscript, incluso nell'installer
 - Riconosce i file PDF/A aperti (indicato nella barra di stato)
 
-**Assistente Claude** (menu *Claude* o Ctrl+Maiusc+A)
+**Assistente Claude** — *non attivo nella versione 1.1* (si abilita con `CLAUDE_ENABLED` in `pdfstudio/__init__.py`)
 - Domande sul documento: riassunti, estrazione dati, controllo errori, traduzioni
 - Modifiche su richiesta: sostituire testo, riscrivere paragrafi, evidenziare, aggiungere note,
   compilare moduli, ruotare o eliminare pagine — tutte annullabili con Ctrl+Z

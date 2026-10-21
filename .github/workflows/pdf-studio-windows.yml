@@ -2,10 +2,15 @@ name: PDF Studio - build Windows
 
 on:
   push:
+    tags:
+      - "v*"
     paths:
       - "pdf_studio/**"
       - ".github/workflows/pdf-studio-windows.yml"
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -62,6 +67,19 @@ jobs:
         run: |
           choco install innosetup --no-progress -y
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Pacchetto portabile
+        run: Compress-Archive -Path dist\PDFStudio\* -DestinationPath "dist\PDFStudio-portabile-$env:GITHUB_REF_NAME.zip"
+
+      - name: Pubblica release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: PDF Studio ${{ github.ref_name }}
+          body_path: pdf_studio/RELEASE_NOTES.md
+          files: |
+            pdf_studio/dist/PDFStudio-Setup-*.exe
+            pdf_studio/dist/PDFStudio-portabile-*.zip
 
       - uses: actions/upload-artifact@v4
         with:

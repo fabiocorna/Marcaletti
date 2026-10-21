@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox, QFileDialo
                                QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressDialog,
                                QSizePolicy, QSpinBox, QSplitter, QStyle, QTabWidget, QToolBar, QToolButton, QWidget)
 
-from . import __version__
+from . import CLAUDE_ENABLED, __version__
 from . import viewer as V
 from .dialogs import (CompressDialog, ExportImagesDialog, FindReplaceDialog, FormFieldDialog, MergeDialog,
                       MetadataDialog, PdfADialog, SignaturesDialog,
@@ -140,7 +140,8 @@ class MainWindow(QMainWindow):
         self._create_menus()
         self._create_toolbars()
         self._create_statusbar()
-        self._create_assistant()
+        if CLAUDE_ENABLED:
+            self._create_assistant()
         geo = self.settings.value("geometry")
         if geo is not None:
             self.restoreGeometry(geo)
@@ -319,9 +320,10 @@ class MainWindow(QMainWindow):
         for a in (self.a_watermark, self.a_pagenums, self.a_flatten, self.a_ocr):
             m.addAction(a)
 
-        m = mb.addMenu("&Claude")
-        m.addAction(self.a_claude)
-        m.addAction(self.a_claude_settings)
+        if CLAUDE_ENABLED:
+            m = mb.addMenu("&Claude")
+            m.addAction(self.a_claude)
+            m.addAction(self.a_claude_settings)
 
         m = mb.addMenu("&?")
         m.addAction(self.a_about)
@@ -357,8 +359,9 @@ class MainWindow(QMainWindow):
             tb.addAction(a)
         tb.addSeparator()
         tb.addAction(self.a_pdfa)
-        tb.addAction(self.a_claude)
-        btn = tb.widgetForAction(self.a_claude)
+        if CLAUDE_ENABLED:
+            tb.addAction(self.a_claude)
+        btn = tb.widgetForAction(self.a_claude) if CLAUDE_ENABLED else None
         if btn is not None:
             btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         spacer = QWidget()
