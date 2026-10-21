@@ -577,3 +577,64 @@ class SignaturesDialog(QDialog):
         box.rejected.connect(self.reject)
         box.button(QDialogButtonBox.Close).setText("Chiudi")
         lay.addWidget(box)
+
+
+class DxfDialog(QDialog):
+    """Opzioni di esportazione in DXF."""
+
+    def __init__(self, page_count: int, current: int, vector_info: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Esporta in DXF (CAD)")
+        self.page_count = page_count
+        self.current = current
+        form = QFormLayout(self)
+        info = QLabel(vector_info)
+        info.setWordWrap(True)
+        form.addRow(info)
+        self.pages = QComboBox()
+        self.pages.addItems([f"Pagina corrente ({current + 1})", "Tutte le pagine (un file per pagina)",
+                             "Intervallo…"])
+        self.range = QLineEdit(f"{current + 1}")
+        self.range.setEnabled(False)
+        self.pages.currentIndexChanged.connect(lambda i: self.range.setEnabled(i == 2))
+        form.addRow("Pagine:", self.pages)
+        form.addRow("Intervallo:", self.range)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("1 :"))
+        self.scale = QDoubleSpinBox(minimum=0.001, maximum=100000, value=1, decimals=3)
+        self.scale.setToolTip("Scala del disegno: per una tavola in scala 1:100 inserire 100,\n"
+                              "così le misure nel DXF sono quelle reali")
+        row.addWidget(self.scale)
+        row.addStretch()
+        form.addRow("Scala del disegno:", row)
+        self.units = QComboBox()
+        for label, code in [("Millimetri", "mm"), ("Centimetri", "cm"), ("Metri", "m")]:
+            self.units.addItem(label, code)
+        form.addRow("Unità del DXF:", self.units)
+        self.text = QCheckBox("Testi")
+        self.fills = QCheckBox("Riempimenti (retini pieni)")
+        self.annots = QCheckBox("Commenti e disegni aggiunti al PDF")
+        self.circles = QCheckBox("Riconosci i cerchi")
+        for cb in (self.text, self.fills, self.annots, self.circles):
+            cb.setChecked(True)
+            form.addRow(cb)
+        form.addRow(QLabel("<small>I layer del PDF (se creati dal programma CAD) vengono mantenuti; "
+                           "altrimenti le linee sono raggruppate in layer per colore.<br>"
+                           "Le parti scansionate (immagini) non vengono convertite in linee.</small>",
+                           wordWrap=True))
+        form.addRow(_buttons(self))
+
+    def page_list(self) -> list[int]:
+        from .document import parse_page_ranges
+        i = self.pages.currentIndex()
+        if i == 0:
+            return [self.current]
+        if i == 1:
+            return list(range(self.page_count))
+        return [p for a, b in parse_page_ranges(self.range.text(), self.page_count) for p in range(a, b + 1)]
+
+    def options(self):
+        from .dxf_export import DxfOptions
+        return DxfOptions(scale=self.scale.value(), units=self.units.currentData(),
+                          include_text=self.text.isChecked(), include_fills=self.fills.isChecked(),
+                          include_annotations=self.annots.isChecked(), detect_circles=self.circles.isChecked())

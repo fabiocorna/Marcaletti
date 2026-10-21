@@ -2,7 +2,7 @@
 ; Prima eseguire build_windows.bat, poi compilare questo file con Inno Setup 6.
 
 #define AppName "PDF Studio"
-#define AppVersion "1.1.0"
+#define AppVersion "1.2.0"
 #define AppExe "PDFStudio.exe"
 
 [Setup]

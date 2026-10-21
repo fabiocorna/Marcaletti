@@ -1,14 +1,17 @@
-## PDF Studio 1.1.0
+## PDF Studio 1.2.0
 
 Lettore ed editor PDF per Windows.
 
 ### Download
-- **PDFStudio-Setup-1.1.0.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
-- **PDFStudio-portabile-1.1.0.zip** — versione da scompattare e avviare con `PDFStudio.exe`, senza installazione.
+- **PDFStudio-Setup-1.2.0.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
+- **PDFStudio-portabile-1.2.0.zip** — versione da scompattare e avviare con `PDFStudio.exe`, senza installazione.
 
 Al primo avvio Windows può mostrare «Windows ha protetto il PC» (programma senza firma digitale): *Ulteriori informazioni → Esegui comunque*.
 
-### Novità
+### Novità della 1.2
+- **Esportazione in DXF** dei disegni vettoriali (File → Esporta → Esporta in DXF): linee, curve, cerchi, retini, tratteggi e testi, con i layer del CAD originale, scala del disegno e unità a scelta.
+
+### Novità della 1.1
 - **Modifica del testo esistente** direttamente sulla pagina, con a capo automatico e font originale; modifica di singole righe (Maiusc+clic); **Trova e sostituisci** (Ctrl+H).
 - **File firmati .p7m**: apertura, elenco dei firmatari e verifica di integrità delle firme; estrazione dei contenuti non PDF (es. fatture XML).
 - **Salva come PDF/A** (1b, 2b, 3b), con Ghostscript incluso; file validati con veraPDF.

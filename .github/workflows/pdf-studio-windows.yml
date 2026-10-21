@@ -54,6 +54,7 @@ jobs:
           --name PDFStudio --icon assets\pdfstudio.ico
           --add-data "assets;assets"
           --collect-submodules keyring
+          --collect-data ezdxf
           main.py
 
       - name: Includi Ghostscript

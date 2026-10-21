@@ -28,6 +28,15 @@ Lettore ed editor PDF per Windows, in stile Adobe Acrobat. Scritto in Python con
   documento non sia stato modificato dopo la firma
 - Se il contenuto non è un PDF (es. fattura XML) lo estrae e lo salva
 
+**Esportazione in DXF (CAD)**
+- *File → Esporta → Esporta in DXF*: i disegni vettoriali (piante, tavole, schemi) diventano un DXF
+  per AutoCAD, BricsCAD, DraftSight, LibreCAD, QCAD
+- Linee, polilinee, curve (spline), cerchi, retini pieni, linee tratteggiate, spessori e colori;
+  i testi restano testi modificabili
+- Mantiene i layer del PDF creati dal programma CAD; altrimenti raggruppa per colore
+- Scala del disegno (es. 1:100) e unità (mm, cm, m): le misure nel DXF sono quelle reali
+- Le pagine scansionate (immagini) non contengono linee e vengono segnalate
+
 **PDF/A**
 - *File → Salva come PDF/A*: PDF/A-1b, 2b (consigliato) e 3b tramite Ghostscript, incluso nell'installer
 - Riconosce i file PDF/A aperti (indicato nella barra di stato)
@@ -97,6 +106,7 @@ python -m pytest -q tests
 | `pdfstudio/thumbnails.py` | Pannello miniature con riordino |
 | `pdfstudio/textedit.py` | Modifica del testo esistente: paragrafi, righe, trova e sostituisci, scelta dei font |
 | `pdfstudio/p7m.py` | Lettura e verifica dei file firmati .p7m |
+| `pdfstudio/dxf_export.py` | Esportazione dei disegni vettoriali in DXF |
 | `pdfstudio/pdfa.py` | Conversione e controllo PDF/A (Ghostscript) |
 | `pdfstudio/assistant.py` | Strumenti e conversazione dell'assistente Claude |
 | `pdfstudio/assistant_panel.py` | Pannello laterale dell'assistente |

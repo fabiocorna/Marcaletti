@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox, QFileDialo
 
 from . import CLAUDE_ENABLED, __version__
 from . import viewer as V
-from .dialogs import (CompressDialog, ExportImagesDialog, FindReplaceDialog, FormFieldDialog, MergeDialog,
+from .dialogs import (CompressDialog, DxfDialog, ExportImagesDialog, FindReplaceDialog, FormFieldDialog, MergeDialog,
                       MetadataDialog, PdfADialog, SignaturesDialog,
                       NewDocumentDialog, PageNumbersDialog, PasswordPrompt, SecurityDialog, SignatureDialog,
                       SplitDialog, TextDialog, WatermarkDialog)
@@ -184,6 +184,8 @@ class MainWindow(QMainWindow):
         self.a_export_img = self._act("Esporta come &immagini…", self.export_images)
         self.a_export_txt = self._act("Esporta come &testo…", self.export_text)
         self.a_export_docx = self._act("Esporta in &Word (.docx)…", self.export_docx)
+        self.a_export_dxf = self._act("Esporta in &DXF (CAD)…", self.export_dxf, None, glyph_icon("⌖"),
+                                      "Esporta i disegni vettoriali in DXF per AutoCAD e altri CAD")
         self.a_print = self._act("S&tampa…", self.print_document, QKeySequence.Print, glyph_icon("🖶"))
         self.a_props = self._act("&Proprietà…", self.properties, "Ctrl+D")
         self.a_security = self._act("Proteggi con &password…", self.security, None, glyph_icon("🔒"))
@@ -275,7 +277,7 @@ class MainWindow(QMainWindow):
         for a in (self.a_save, self.a_save_as, self.a_pdfa, self.a_compress):
             m.addAction(a)
         exp = m.addMenu("&Esporta")
-        for a in (self.a_export_img, self.a_export_txt, self.a_export_docx):
+        for a in (self.a_export_img, self.a_export_txt, self.a_export_docx, self.a_export_dxf):
             exp.addAction(a)
         m.addSeparator()
         m.addAction(self.a_print)
@@ -447,7 +449,7 @@ class MainWindow(QMainWindow):
                   self.a_rot_r, self.a_del_page, self.a_ins_blank, self.a_ins_file, self.a_dup, self.a_extract,
                   self.a_split, self.a_watermark, self.a_pagenums, self.a_flatten, self.a_ocr, self.a_move_up,
                   self.a_move_down, self.a_prev, self.a_next, self.a_copy_page_text, self.a_uncrop,
-                  self.a_pdfa, self.a_replace,
+                  self.a_pdfa, self.a_replace, self.a_export_dxf,
                   *self.tool_actions.values()):
             a.setEnabled(has)
         self.a_undo.setEnabled(bool(d and d.can_undo))
@@ -726,6 +728,51 @@ class MainWindow(QMainWindow):
             return
         QApplication.restoreOverrideCursor()
         self.statusBar().showMessage(f"Creato {out}", 5000)
+
+    def export_dxf(self) -> None:
+        d = self._require_doc()
+        if not d:
+            return
+        from . import dxf_export
+        cur = self.tab().view.current_page
+        n_vec, n_img = dxf_export.page_vector_stats(d.page(cur))
+        if n_vec == 0 and n_img:
+            info = ("⚠ La pagina corrente sembra <b>scansionata</b> (solo immagini): non contiene linee "
+                    "vettoriali da esportare. Verranno esportati solo eventuali testi.")
+        elif n_vec == 0:
+            info = "⚠ La pagina corrente non contiene disegni vettoriali."
+        else:
+            info = f"La pagina corrente contiene <b>{n_vec}</b> tracciati vettoriali."
+        dlg = DxfDialog(d.page_count, cur, info, self)
+        if not dlg.exec():
+            return
+        try:
+            pages = dlg.page_list()
+        except ValueError as exc:
+            self._error("Esporta in DXF", exc)
+            return
+        base = os.path.splitext(d.path or os.path.join(self.settings.value("last_dir", ""), d.title))[0]
+        out, _ = QFileDialog.getSaveFileName(self, "Esporta in DXF", base + ".dxf", "Disegno DXF (*.dxf)")
+        if not out:
+            return
+        if not out.lower().endswith(".dxf"):
+            out += ".dxf"
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            reports = dxf_export.export(d.doc, pages, out, dlg.options())
+        except Exception as exc:
+            QApplication.restoreOverrideCursor()
+            self._error("Esporta in DXF", exc)
+            return
+        QApplication.restoreOverrideCursor()
+        tot = lambda attr: sum(getattr(r, attr) for r in reports)
+        layers = sorted(set().union(*(r.layers for r in reports)))
+        text = (f"Creati {len(reports)} file DXF.\n\n" if len(reports) > 1 else f"Creato {os.path.basename(out)}.\n\n")
+        text += (f"Linee e polilinee: {tot('lines')}\nCurve: {tot('curves')}\nCerchi: {tot('circles')}\n"
+                 f"Riempimenti: {tot('hatches')}\nTesti: {tot('texts')}\nLayer: {', '.join(layers) or '-'}")
+        if any(r.raster_only for r in reports):
+            text += "\n\nAttenzione: alcune pagine sono scansionate e non contengono linee vettoriali."
+        QMessageBox.information(self, "Esporta in DXF", text)
 
     def print_document(self) -> None:
         d = self._require_doc()
