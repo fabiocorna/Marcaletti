@@ -1,12 +1,14 @@
-PySide6>=6.6
-PyMuPDF>=1.24
-# Assistente Claude
-anthropic>=1.0
-keyring>=24
+# Versioni bloccate su quelle provate: un aggiornamento delle librerie non deve
+# cambiare il programma senza essere prima verificato (es. PyMuPDF 2.0).
+PySide6==6.12.0
+PyMuPDF==1.28.2
+# Assistente Claude (disattivato in questa versione)
+anthropic==1.17.0
+keyring>=24,<26
 # File firmati .p7m
-asn1crypto>=1.5
-cryptography>=42
+asn1crypto==1.5.1
+cryptography==50.0.1
 # Esportazione DXF
-ezdxf>=1.3
-# Facoltativo: esportazione in Word (.docx)
-pdf2docx>=0.5.8
+ezdxf==1.4.5
+# Esportazione in Word (.docx)
+pdf2docx==0.5.13

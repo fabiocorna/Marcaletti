@@ -85,10 +85,32 @@ jobs:
           $env:PATH = "C:\Windows\System32;C:\Windows"
           dist\CRNPDFStudio\ghostscript\bin\gswin64c.exe -v
 
+      - name: Collaudo dell'eseguibile
+        run: |
+          $out = "$env:RUNNER_TEMP\selftest_dist.txt"
+          $p = Start-Process -FilePath dist\CRNPDFStudio\CRNPDFStudio.exe -ArgumentList "--selftest", "`"$out`"" -PassThru
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "Collaudo bloccato (finestra di errore?)" }
+          Get-Content $out
+          if ($p.ExitCode -ne 0) { throw "Collaudo dell'eseguibile non riuscito" }
+
       - name: Crea installer
         run: |
           choco install innosetup --no-progress -y
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Collaudo del programma installato
+        run: |
+          $setup = Get-ChildItem dist\CRNPDFStudio-Setup-*.exe | Select-Object -First 1
+          $i = Start-Process -FilePath $setup.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/TASKS=printer" -PassThru
+          if (-not $i.WaitForExit(600000)) { throw "Installazione bloccata" }
+          $exe = "$env:ProgramFiles\CRN PDF Studio\CRNPDFStudio.exe"
+          if (-not (Test-Path $exe)) { throw "Programma non installato in $exe" }
+          Get-Printer -Name "CRN PDF" | Format-List Name,DriverName,PortName
+          $out = "$env:RUNNER_TEMP\selftest_installed.txt"
+          $p = Start-Process -FilePath $exe -ArgumentList "--selftest", "`"$out`"" -PassThru
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "Collaudo bloccato (finestra di errore?)" }
+          Get-Content $out
+          if ($p.ExitCode -ne 0) { throw "Collaudo del programma installato non riuscito" }
 
       - name: Pacchetto portabile
         id: pkg

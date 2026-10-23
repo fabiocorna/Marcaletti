@@ -1,12 +1,15 @@
-## CRN PDF Studio 1.3.0
+## CRN PDF Studio 1.3.1
 
 Lettore ed editor PDF per Windows.
 
 ### Download
-- **CRNPDFStudio-Setup-1.3.0.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
-- **CRNPDFStudio-portabile-1.3.0.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
+- **CRNPDFStudio-Setup-1.3.1.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
+- **CRNPDFStudio-portabile-1.3.1.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
 
 Al primo avvio Windows può mostrare «Windows ha protetto il PC» (programma senza firma digitale): *Ulteriori informazioni → Esegui comunque*.
+
+### Correzioni della 1.3.1
+- Corretto il blocco all'avvio della 1.3.0 («No such file or directory … layout_rf2.4.1+imf1.yaml»), causato da un aggiornamento automatico della libreria PDF. Le librerie sono ora bloccate sulle versioni collaudate e ogni build verifica il programma installato.
 
 ### Novità della 1.3
 - **Nuovo nome: CRN PDF Studio** (aggiornando dalla versione precedente, «PDF Studio» viene sostituito).

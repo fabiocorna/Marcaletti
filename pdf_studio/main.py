@@ -8,11 +8,66 @@ import getpass
 import json
 import os
 import sys
+import traceback
 
-from PySide6.QtNetwork import QLocalServer, QLocalSocket
-from PySide6.QtWidgets import QApplication
 
-from pdfstudio.mainwindow import MainWindow, app_icon
+def selftest(report_path: str) -> int:
+    """Collaudo dell'eseguibile: carica tutti i moduli, apre un PDF e usa le funzioni
+    principali senza mostrare finestre. Scrive l'esito in ``report_path``."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    lines = []
+    try:
+        import tempfile
+
+        import pymupdf
+        from PySide6.QtWidgets import QApplication
+
+        from pdfstudio import dxf_export, p7m, pdfa, printer, textedit  # noqa: F401
+        from pdfstudio.mainwindow import MainWindow
+
+        app = QApplication(sys.argv[:1])
+        tmp = tempfile.mkdtemp(prefix="crnpdf_selftest_")
+        src = os.path.join(tmp, "prova.pdf")
+        doc = pymupdf.open()
+        page = doc.new_page()
+        page.insert_text((72, 100), "Collaudo CRN PDF Studio", fontsize=14)
+        page.draw_circle((300, 300), 50)
+        doc.save(src)
+        win = MainWindow()
+        win.open_file(src)
+        d = win.doc()
+        assert d is not None and d.page_count == 1, "apertura PDF non riuscita"
+        lines.append(f"PyMuPDF {pymupdf.VersionBind}")
+        assert d.find_replace("Collaudo", "Verifica") == 1
+        rep = dxf_export.export_page(d.doc, 0, os.path.join(tmp, "prova.dxf"))
+        assert rep.circles == 1, "esportazione DXF non riuscita"
+        gs = pdfa.find_ghostscript()
+        lines.append(f"Ghostscript: {gs}")
+        if gs:
+            issues = pdfa.convert_to_pdfa(d.to_bytes(), os.path.join(tmp, "a.pdf"), 2)
+            assert pdfa.pdfa_part(os.path.join(tmp, "a.pdf")) == "2B", issues
+        d.modified = False
+        win.quit_app()
+        app.processEvents()
+        lines.append("ESITO: OK")
+        code = 0
+    except Exception:
+        lines.append(traceback.format_exc())
+        lines.append("ESITO: ERRORE")
+        code = 1
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    os._exit(code)
+
+
+if "--selftest" in sys.argv:
+    i = sys.argv.index("--selftest")
+    selftest(sys.argv[i + 1] if len(sys.argv) > i + 1 else "selftest.txt")
+
+from PySide6.QtNetwork import QLocalServer, QLocalSocket  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
+
+from pdfstudio.mainwindow import MainWindow, app_icon  # noqa: E402
 
 SERVER_NAME = "CRNPDFStudio-" + "".join(c for c in getpass.getuser() if c.isalnum())
 

@@ -2,7 +2,7 @@
 ; Prima eseguire build_windows.bat, poi compilare questo file con Inno Setup 6.
 
 #define AppName "CRN PDF Studio"
-#define AppVersion "1.3.0"
+#define AppVersion "1.3.1"
 #define AppExe "CRNPDFStudio.exe"
 
 [Setup]
