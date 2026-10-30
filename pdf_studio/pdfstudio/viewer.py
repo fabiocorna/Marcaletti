@@ -2,13 +2,45 @@
 from __future__ import annotations
 
 import pymupdf
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, Signal
 import re
 
 from PySide6.QtGui import (QBrush, QColor, QCursor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap,
                            QTextBlockFormat, QTextCursor, QTextOption)
-from PySide6.QtWidgets import (QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem,
-                               QGraphicsScene, QGraphicsTextItem, QGraphicsView)
+from PySide6.QtWidgets import (QComboBox, QGraphicsPathItem, QGraphicsPixmapItem, QGraphicsRectItem,
+                               QGraphicsScene, QGraphicsTextItem, QGraphicsView, QLineEdit, QPlainTextEdit)
+
+FIELD_FILL = QColor(204, 215, 255, 80)      # azzurro dei campi compilabili, come in Acrobat
+FIELD_BORDER = QColor(110, 140, 230, 170)
+EDITABLE_KINDS = {"text", "multiline", "checkbox", "radio", "combo", "list"}
+
+
+class _FieldKeys(QObject):
+    """Tasti dell'editor di campo: Invio/Tab conferma e passa al successivo, Esc annulla."""
+
+    def __init__(self, view, multiline: bool):
+        super().__init__(view)
+        self.view = view
+        self.multiline = multiline
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.KeyPress:
+            key = event.key()
+            if key == Qt.Key_Escape:
+                self.view.close_field_editor(commit=False)
+                return True
+            if key in (Qt.Key_Tab, Qt.Key_Backtab):
+                back = key == Qt.Key_Backtab or bool(event.modifiers() & Qt.ShiftModifier)
+                self.view.close_field_editor(commit=True, move=-1 if back else 1)
+                return True
+            if key in (Qt.Key_Return, Qt.Key_Enter) and (not self.multiline or
+                                                         event.modifiers() & Qt.ControlModifier):
+                self.view.close_field_editor(commit=True, move=1)
+                return True
+        elif event.type() == QEvent.FocusOut and event.reason() != Qt.PopupFocusReason:
+            # Chiude solo se è ancora aperto lo stesso editor (non quello del campo successivo)
+            QTimer.singleShot(0, lambda: self.view.close_field_editor(commit=True, only=obj))
+        return False
 
 from .document import PdfDocument
 
@@ -69,6 +101,8 @@ class PageView(QGraphicsView):
     zoomChanged = Signal(float)
     # (strumento, indice pagina, dati) — gestiti dalla finestra principale
     toolAction = Signal(str, int, object)
+    # (campo, nuovo valore) quando l'utente compila un campo del modulo
+    fieldEdited = Signal(object, object)
     documentEdited = Signal()
     # (pagina, blocco, nuovo testo) al termine della modifica diretta di un paragrafo
     inlineEditFinished = Signal(int, object, str)
@@ -102,8 +136,13 @@ class PageView(QGraphicsView):
         self._render_timer = QTimer(self, singleShot=True, interval=30, timeout=self._render_visible)
         self._current_page = 0
         self._inline = None  # (pagina, blocco, sfondo, casella)
+        self.show_fields = True
+        self._fields: list = []
+        self._field_items: list = []
+        self._field_editor = None  # (campo, proxy, widget)
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
         self.setAcceptDrops(False)
+        self.viewport().setMouseTracking(True)
 
     # ------------------------------------------------------------------ setup
     def set_document(self, document: PdfDocument | None, keep_position: bool = False) -> None:
@@ -111,6 +150,7 @@ class PageView(QGraphicsView):
         page = self._current_page if keep_position else 0
         self._commit_ink()
         self.cancel_inline_edit()
+        self.close_field_editor(commit=False)
         self.document = document
         self._rebuild()
         if keep_position:
@@ -125,6 +165,7 @@ class PageView(QGraphicsView):
 
     def _rebuild(self) -> None:
         scene = self.scene()
+        self._field_items.clear()  # eliminati insieme alla scena
         scene.clear()
         self._pages.clear()
         self._frames.clear()
@@ -159,6 +200,7 @@ class PageView(QGraphicsView):
             frame.setX(x)
             item.setX(x)
         scene.setSceneRect(QRectF(-PAGE_GAP, 0, max_w + 2 * PAGE_GAP, y))
+        self._build_field_overlays()
         self._render_timer.start()
 
     def _apply_fit(self) -> None:
@@ -323,6 +365,125 @@ class PageView(QGraphicsView):
             self._search_items.append(item)
 
     # ------------------------------------------------------------------ strumenti
+    # ------------------------------------------------------- moduli compilabili
+    def refresh_fields(self) -> None:
+        self._fields = self.document.form_fields() if self.document else []
+
+    def _build_field_overlays(self) -> None:
+        for it in self._field_items:
+            try:
+                if it.scene() is not None:
+                    self.scene().removeItem(it)
+            except RuntimeError:  # già eliminato con la scena
+                pass
+        self._field_items.clear()
+        self.refresh_fields()
+        if not self.show_fields:
+            return
+        for f in self._fields:
+            if f.readonly or f.kind not in EDITABLE_KINDS or f.page >= len(self._frames):
+                continue
+            item = self.scene().addRect(self._doc_rect_to_scene(f.page, f.rect), QPen(FIELD_BORDER, 0.8),
+                                        QBrush(FIELD_FILL))
+            item.setZValue(6)
+            item.setToolTip(f.label or f.name)
+            self._field_items.append(item)
+
+    def set_show_fields(self, show: bool) -> None:
+        self.show_fields = show
+        self._build_field_overlays()
+
+    def field_at(self, scene_pt: QPointF):
+        idx = self._page_at(scene_pt)
+        if idx < 0:
+            return None
+        pt = self._scene_to_doc(idx, scene_pt)
+        hits = [f for f in self._fields if f.page == idx and f.rect.contains(pt) and f.kind in EDITABLE_KINDS]
+        return min(hits, key=lambda f: f.rect.width * f.rect.height) if hits else None
+
+    def activate_field(self, field) -> None:
+        self.close_field_editor(commit=True)
+        if field.readonly:
+            return
+        if field.kind == "checkbox":
+            self.fieldEdited.emit(field, not field.checked)
+            return
+        if field.kind == "radio":
+            if not field.checked:
+                self.fieldEdited.emit(field, True)
+            return
+        rect = self._doc_rect_to_scene(field.page, field.rect)
+        self.ensureVisible(rect, 40, 60)
+        size = field.fontsize or min(max(field.rect.height * 0.6, 7), 12)
+        font = QFont("Arial")
+        font.setPixelSize(max(6, round(size * self.zoom)))
+        style = "background:#fffbe6; border:1px solid #3d6bd6; padding:0 2px;"
+        if field.kind == "text":
+            editor = QLineEdit(str(field.value or ""))
+            if field.maxlen:
+                editor.setMaxLength(field.maxlen)
+            editor.selectAll()
+        elif field.kind == "multiline":
+            editor = QPlainTextEdit(str(field.value or ""))
+        else:  # combo e list
+            editor = QComboBox()
+            editor.addItems(field.choices)
+            editor.setCurrentText(str(field.value or ""))
+            editor.activated.connect(lambda _i: self.close_field_editor(commit=True))
+        editor.setFont(font)
+        editor.setStyleSheet(style)
+        proxy = self.scene().addWidget(editor)
+        proxy.setGeometry(rect)
+        proxy.setZValue(30)
+        editor.installEventFilter(_FieldKeys(self, field.kind == "multiline"))
+        self._field_editor = (field, proxy, editor)
+        editor.setFocus()
+        if isinstance(editor, QComboBox):
+            QTimer.singleShot(0, editor.showPopup)
+
+    def close_field_editor(self, commit: bool = True, move: int = 0, only=None) -> None:
+        if self._field_editor is None or (only is not None and self._field_editor[2] is not only):
+            return
+        field, proxy, editor = self._field_editor
+        self._field_editor = None
+        if isinstance(editor, QLineEdit):
+            value = editor.text()
+        elif isinstance(editor, QPlainTextEdit):
+            value = editor.toPlainText()
+        else:
+            value = editor.currentText()
+        if proxy.scene() is not None:
+            self.scene().removeItem(proxy)
+        proxy.deleteLater()
+        self.setFocus()
+        if commit and value != str(field.value or ""):
+            self.fieldEdited.emit(field, value)  # la finestra aggiorna documento e campi
+        if move:
+            self._activate_next(field, move)
+
+    def _activate_next(self, field, step: int) -> None:
+        order = [f for f in self._fields if f.kind in EDITABLE_KINDS and not f.readonly]
+        keys = [(f.page, f.xref) for f in order]
+        try:
+            i = keys.index((field.page, field.xref))
+        except ValueError:
+            return
+        j = i + step
+        if 0 <= j < len(order):
+            nxt = order[j]
+            if nxt.kind in ("checkbox", "radio"):
+                # Le caselle si attivano con un clic: si mostra solo il campo
+                self.ensureVisible(self._doc_rect_to_scene(nxt.page, nxt.rect), 40, 60)
+                self._focus_marker(nxt)
+            else:
+                self.activate_field(nxt)
+
+    def _focus_marker(self, field) -> None:
+        rect = self._doc_rect_to_scene(field.page, field.rect)
+        mark = self.scene().addRect(rect.adjusted(-2, -2, 2, 2), QPen(QColor(61, 107, 214), 2))
+        mark.setZValue(31)
+        QTimer.singleShot(1200, lambda: mark.scene() and self.scene().removeItem(mark))
+
     # ------------------------------------------------------- modifica diretta
     @property
     def inline_editing(self) -> bool:
@@ -415,16 +576,19 @@ class PageView(QGraphicsView):
                 return
             self.commit_inline_edit()
             return
+        if self._field_editor is not None:
+            proxy = self._field_editor[1]
+            if proxy.sceneBoundingRect().contains(self.mapToScene(event.position().toPoint())):
+                super().mousePressEvent(event)
+                return
+            self.close_field_editor(commit=True)
+        if self.document and event.button() == Qt.LeftButton and self.tool in (HAND, SELECT, EDIT_TEXT):
+            # Clic su un campo del modulo: si compila direttamente
+            field = self.field_at(self.mapToScene(event.position().toPoint()))
+            if field is not None:
+                self.activate_field(field)
+                return
         if not self.document or event.button() != Qt.LeftButton or self.tool == HAND:
-            if self.tool == HAND and self.document and event.button() == Qt.LeftButton:
-                # Clic su un campo modulo con la mano: compila il campo
-                sp = self.mapToScene(event.position().toPoint())
-                idx = self._page_at(sp)
-                if idx >= 0:
-                    w = self.document.widget_at(idx, self._scene_to_doc(idx, sp))
-                    if w is not None:
-                        self.toolAction.emit("form", idx, w)
-                        return
             super().mousePressEvent(event)
             return
         sp = self.mapToScene(event.position().toPoint())
@@ -474,6 +638,14 @@ class PageView(QGraphicsView):
         self._rubber.setZValue(10)
 
     def mouseMoveEvent(self, event) -> None:
+        if event.buttons() == Qt.NoButton and self._fields and self.tool in (HAND, SELECT, EDIT_TEXT):
+            field = self.field_at(self.mapToScene(event.position().toPoint()))
+            if field is not None:
+                self.viewport().setCursor(Qt.PointingHandCursor if field.kind in ("checkbox", "radio")
+                                          else Qt.IBeamCursor)
+            else:
+                self.viewport().setCursor({HAND: Qt.OpenHandCursor, SELECT: Qt.IBeamCursor,
+                                           EDIT_TEXT: Qt.IBeamCursor}[self.tool])
         if self._inline is not None:
             super().mouseMoveEvent(event)
             return

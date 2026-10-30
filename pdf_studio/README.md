@@ -62,7 +62,8 @@ Lettore ed editor PDF per Windows, in stile Adobe Acrobat. Scritto in Python con
 - Inserimento immagini e **firma** (disegnata, digitata o da immagine)
 - Bianchetto, **oscuramento definitivo** (redazione) del contenuto, ritaglio pagina
 - Gomma per eliminare commenti/disegni; doppio clic con la mano per modificare un commento
-- Compilazione dei moduli PDF (clic sul campo con lo strumento Mano)
+- **Moduli compilabili**: campi evidenziati, scrittura diretta nel campo, Tab per il successivo, caselle,
+  pulsanti di scelta ed elenchi; moduli XFA ibridi compilabili, avviso per quelli XFA dinamici
 - Annulla/Ripeti (Ctrl+Z / Ctrl+Y)
 
 **Pagine**

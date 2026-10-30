@@ -1,3 +1,4 @@
 -r requirements.txt
 pytest==9.1.1
 pyinstaller==6.22.3
+reportlab==5.0.1  # solo per i test dei moduli

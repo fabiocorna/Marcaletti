@@ -1,12 +1,16 @@
-## CRN PDF Studio 1.3.1
+## CRN PDF Studio 1.4.0
 
 Lettore ed editor PDF per Windows.
 
 ### Download
-- **CRNPDFStudio-Setup-1.3.1.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
-- **CRNPDFStudio-portabile-1.3.1.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
+- **CRNPDFStudio-Setup-1.4.0.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
+- **CRNPDFStudio-portabile-1.4.0.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
 
 Al primo avvio Windows può mostrare «Windows ha protetto il PC» (programma senza firma digitale): *Ulteriori informazioni → Esegui comunque*.
+
+### Novità della 1.4
+- **Moduli PDF compilabili** come in Acrobat: i campi sono evidenziati in azzurro, si scrive direttamente nel campo, **Tab** / **Maiusc+Tab** per passare al campo successivo o precedente, clic per caselle e pulsanti di scelta, menu a discesa per gli elenchi. Ogni modifica si annulla con Ctrl+Z. Evidenziazione attivabile da *Visualizza → Evidenzia campi dei moduli*.
+- **Moduli XFA** (Adobe LiveCycle): quelli ibridi si compilano normalmente e i valori vengono salvati nei campi standard, leggibili da tutti i programmi; per quelli dinamici, che solo Adobe Reader sa mostrare, compare un avviso che spiega cosa fare.
 
 ### Correzioni della 1.3.1
 - Corretto il blocco all'avvio della 1.3.0 («No such file or directory … layout_rf2.4.1+imf1.yaml»), causato da un aggiornamento automatico della libreria PDF. Le librerie sono ora bloccate sulle versioni collaudate e ogni build verifica il programma installato.

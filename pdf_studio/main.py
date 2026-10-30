@@ -32,6 +32,11 @@ def selftest(report_path: str) -> int:
         page = doc.new_page()
         page.insert_text((72, 100), "Collaudo CRN PDF Studio", fontsize=14)
         page.draw_circle((300, 300), 50)
+        field = pymupdf.Widget()
+        field.field_type = pymupdf.PDF_WIDGET_TYPE_TEXT
+        field.field_name = "nome"
+        field.rect = pymupdf.Rect(72, 400, 300, 420)
+        page.add_widget(field)
         doc.save(src)
         win = MainWindow()
         win.open_file(src)
@@ -39,6 +44,9 @@ def selftest(report_path: str) -> int:
         assert d is not None and d.page_count == 1, "apertura PDF non riuscita"
         lines.append(f"PyMuPDF {pymupdf.VersionBind}")
         assert d.find_replace("Collaudo", "Verifica") == 1
+        f = next(x for x in d.form_fields() if x.name == "nome")
+        win.tab().view.fieldEdited.emit(f, "Mario Rossi")
+        assert next(x for x in d.form_fields() if x.name == "nome").value == "Mario Rossi", "modulo"
         rep = dxf_export.export_page(d.doc, 0, os.path.join(tmp, "prova.dxf"))
         assert rep.circles == 1, "esportazione DXF non riuscita"
         gs = pdfa.find_ghostscript()

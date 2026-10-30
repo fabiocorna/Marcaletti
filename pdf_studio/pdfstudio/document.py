@@ -63,6 +63,26 @@ def guess_base14(font: str, flags: int) -> str:
     return "hebo" if bold else ("heit" if italic else "helv")
 
 
+@dataclass
+class FormField:
+    page: int
+    xref: int
+    name: str
+    kind: str          # text, multiline, checkbox, radio, combo, list, signature, button
+    rect: pymupdf.Rect
+    value: object
+    choices: list
+    maxlen: int = 0
+    readonly: bool = False
+    fontsize: float = 0
+    on_state: str = ""
+    label: str = ""
+
+    @property
+    def checked(self) -> bool:
+        return self.value not in (None, False, "", "Off")
+
+
 class PdfDocument:
     """Documento PDF aperto nell'editor, con annulla/ripeti."""
 
@@ -592,12 +612,78 @@ class PdfDocument:
         return None
 
     def set_widget_value(self, index: int, xref: int, value) -> None:
+        """Imposta il valore di un campo. Per caselle e pulsanti di scelta: True/False."""
         self.checkpoint()
+        self._drop_xfa()
         for w in self.doc[index].widgets() or []:
-            if w.xref == xref:
-                w.field_value = value
-                w.update()
-                return
+            if w.xref != xref:
+                continue
+            if w.field_type in (pymupdf.PDF_WIDGET_TYPE_CHECKBOX, pymupdf.PDF_WIDGET_TYPE_RADIOBUTTON) \
+                    and isinstance(value, bool):
+                value = w.on_state() if value else "Off"
+            w.field_value = value
+            w.update()
+            return
+
+    def form_fields(self) -> list[FormField]:
+        """Campi del modulo nell'ordine di compilazione (pagina, dall'alto, da sinistra)."""
+        kinds = {
+            pymupdf.PDF_WIDGET_TYPE_TEXT: "text",
+            pymupdf.PDF_WIDGET_TYPE_CHECKBOX: "checkbox",
+            pymupdf.PDF_WIDGET_TYPE_RADIOBUTTON: "radio",
+            pymupdf.PDF_WIDGET_TYPE_COMBOBOX: "combo",
+            pymupdf.PDF_WIDGET_TYPE_LISTBOX: "list",
+            pymupdf.PDF_WIDGET_TYPE_SIGNATURE: "signature",
+            pymupdf.PDF_WIDGET_TYPE_BUTTON: "button",
+        }
+        fields = []
+        for i, page in enumerate(self.doc):
+            for w in page.widgets() or []:
+                kind = kinds.get(w.field_type, "other")
+                flags = w.field_flags or 0
+                if kind == "text" and flags & pymupdf.PDF_TX_FIELD_IS_MULTILINE:
+                    kind = "multiline"
+                choices = []
+                for c in w.choice_values or []:
+                    choices.append(c if isinstance(c, str) else str(c[1] if len(c) > 1 else c[0]))
+                on = ""
+                if kind in ("checkbox", "radio"):
+                    try:
+                        on = w.on_state()
+                    except Exception:
+                        on = "Yes"
+                fields.append(FormField(
+                    page=i, xref=w.xref, name=w.field_name or "", kind=kind, rect=pymupdf.Rect(w.rect),
+                    value=w.field_value, choices=choices, maxlen=w.text_maxlen or 0,
+                    readonly=bool(flags & pymupdf.PDF_FIELD_IS_READ_ONLY), fontsize=w.text_fontsize or 0,
+                    on_state=on, label=w.field_label or ""))
+        fields.sort(key=lambda f: (f.page, round(f.rect.y0 / 4), f.rect.x0))
+        return fields
+
+    # XFA: moduli Adobe LiveCycle. Se il modulo ha anche i campi normali (ibrido), i valori
+    # inseriti qui vanno nei campi normali: l'XFA viene rimosso perché Adobe Reader non
+    # mostri i vecchi dati XFA al posto di quelli nuovi.
+    def _acroform_xref(self) -> int:
+        try:
+            kind, val = self.doc.xref_get_key(self.doc.pdf_catalog(), "AcroForm")
+        except Exception:
+            return 0
+        if kind == "xref":
+            return int(val.split()[0])
+        return 0
+
+    def xfa_kind(self) -> str | None:
+        """None, "hybrid" (XFA + campi normali) oppure "dynamic" (solo XFA, non visualizzabile)."""
+        ax = self._acroform_xref()
+        if not ax or self.doc.xref_get_key(ax, "XFA")[0] == "null":
+            return None
+        has_widgets = any(True for page in self.doc for _ in (page.widgets() or []))
+        return "hybrid" if has_widgets else "dynamic"
+
+    def _drop_xfa(self) -> None:
+        ax = self._acroform_xref()
+        if ax and self.doc.xref_get_key(ax, "XFA")[0] != "null":
+            self.doc.xref_set_key(ax, "XFA", "null")
 
     def has_forms(self) -> bool:
         return bool(self.doc.is_form_pdf)

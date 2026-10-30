@@ -197,3 +197,74 @@ def test_parse_ranges():
         parse_page_ranges("0-2", 10)
     with pytest.raises(ValueError):
         parse_page_ranges("", 10)
+
+
+# ------------------------------------------------------------------ moduli
+def _form_with_radio(path):
+    reportlab = pytest.importorskip("reportlab.pdfgen.canvas")
+    from reportlab.lib.colors import black, white
+    c = reportlab.Canvas(path)
+    c.drawString(72, 780, "Modulo di prova")
+    f = c.acroForm
+    f.textfield(name="nome", x=180, y=735, width=250, height=18, value="Mario", borderColor=black, fillColor=white)
+    f.textfield(name="note", x=180, y=630, width=250, height=60, fieldFlags="multiline")
+    f.checkbox(name="privacy", x=200, y=597, size=14)
+    f.choice(name="comune", x=180, y=565, width=150, height=18, options=["Milano", "Bergamo"], value="Milano")
+    f.radio(name="tipo", value="nuovo", x=180, y=537, size=14, selected=True)
+    f.radio(name="tipo", value="ristr", x=260, y=537, size=14)
+    c.save()
+    return path
+
+
+def _add_xfa(doc):
+    """Aggiunge una chiave XFA all'AcroForm (simula un modulo Adobe LiveCycle)."""
+    xfa = doc.get_new_xref()
+    doc.update_object(xfa, "<<>>")
+    doc.update_stream(xfa, b"<xdp:xdp xmlns:xdp='http://ns.adobe.com/xdp/'/>")
+    cat = doc.pdf_catalog()
+    if doc.xref_get_key(cat, "AcroForm")[0] == "null":
+        af = doc.get_new_xref()
+        doc.update_object(af, "<< /Fields [] >>")
+        doc.xref_set_key(cat, "AcroForm", f"{af} 0 R")
+    af = int(doc.xref_get_key(cat, "AcroForm")[1].split()[0])
+    doc.xref_set_key(af, "XFA", f"{xfa} 0 R")
+
+
+def test_form_fields_and_filling(tmp_path):
+    path = _form_with_radio(str(tmp_path / "modulo.pdf"))
+    d = PdfDocument.open(path)
+    fields = d.form_fields()
+    kinds = [(f.name, f.kind) for f in fields]
+    assert ("note", "multiline") in kinds and ("privacy", "checkbox") in kinds and ("comune", "combo") in kinds
+    by = {f.name: f for f in fields}
+    d.set_widget_value(0, by["privacy"].xref, True)
+    d.set_widget_value(0, by["comune"].xref, "Bergamo")
+    radios = [f for f in fields if f.kind == "radio"]
+    assert radios[0].checked and not radios[1].checked
+    d.set_widget_value(0, radios[1].xref, True)
+    after = {(f.name, f.xref): f for f in d.form_fields()}
+    assert after[("privacy", by["privacy"].xref)].checked
+    assert after[("comune", by["comune"].xref)].value == "Bergamo"
+    assert after[("tipo", radios[1].xref)].checked and not after[("tipo", radios[0].xref)].checked
+    out = str(tmp_path / "compilato.pdf")
+    d.save(out)
+    saved = {w.field_name: w.field_value for w in pymupdf.open(out)[0].widgets() if w.field_value not in ("Off",)}
+    assert saved["comune"] == "Bergamo" and saved["privacy"] != "Off" and saved["tipo"] == "ristr"
+
+
+def test_xfa_detection_and_conversion(tmp_path):
+    path = _form_with_radio(str(tmp_path / "ibrido.pdf"))
+    doc = pymupdf.open(path)
+    _add_xfa(doc)
+    doc.save(str(tmp_path / "ibrido_xfa.pdf"))
+    d = PdfDocument.open(str(tmp_path / "ibrido_xfa.pdf"))
+    assert d.xfa_kind() == "hybrid"
+    f = d.form_fields()[0]
+    d.set_widget_value(f.page, f.xref, "Luigi")
+    assert d.xfa_kind() is None  # i valori restano nei campi standard
+
+    dyn = pymupdf.open()
+    dyn.new_page().insert_text((72, 72), "Please wait... this document requires Adobe Reader")
+    _add_xfa(dyn)
+    dyn.save(str(tmp_path / "dinamico.pdf"))
+    assert PdfDocument.open(str(tmp_path / "dinamico.pdf")).xfa_kind() == "dynamic"

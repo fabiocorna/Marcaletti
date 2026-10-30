@@ -10,7 +10,8 @@ from PySide6.QtGui import (QAction, QActionGroup, QColor, QDesktopServices, QFon
                            QKeySequence, QPainter, QPixmap)
 from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox, QFileDialog, QHBoxLayout,
                                QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressDialog,
-                               QSizePolicy, QSpinBox, QSplitter, QStyle, QTabWidget, QToolBar, QToolButton, QWidget)
+                               QSizePolicy, QSpinBox, QSplitter, QStyle, QTabWidget, QToolBar, QToolButton,
+                               QVBoxLayout, QWidget)
 
 from . import CLAUDE_ENABLED, __version__
 from . import viewer as V
@@ -97,8 +98,18 @@ class DocumentTab(QWidget):
         self.document = document
         self.search_results: list = []
         self.search_index = -1
-        lay = QHBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self.banner = QLabel()
+        self.banner.setWordWrap(True)
+        self.banner.setTextFormat(Qt.RichText)
+        self.banner.setVisible(False)
+        self.banner.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        outer.addWidget(self.banner)
+        lay = QHBoxLayout()
         lay.setContentsMargins(0, 0, 0, 0)
+        outer.addLayout(lay, 1)
         self.splitter = QSplitter(Qt.Horizontal)
         self.thumbs = ThumbnailList()
         self.view = PageView()
@@ -111,6 +122,30 @@ class DocumentTab(QWidget):
         self.view.pageChanged.connect(self.thumbs.select_page)
         self.thumbs.set_document(document)
         self.view.set_document(document)
+        self.update_banner()
+
+    def update_banner(self) -> None:
+        """Avviso per i moduli compilabili e per i moduli XFA."""
+        xfa = self.document.xfa_kind()
+        n = sum(1 for f in self.view._fields if f.kind in V.EDITABLE_KINDS and not f.readonly)
+        style = "padding:6px 10px; border-bottom:1px solid #c9c9c9;"
+        if xfa == "dynamic":
+            self.banner.setStyleSheet(style + "background:#fff3cd; color:#5c4400;")
+            self.banner.setText(
+                "<b>Modulo XFA dinamico (Adobe LiveCycle).</b> Questo tipo di modulo può essere visualizzato e "
+                "compilato solo con Adobe Acrobat Reader: quello che vedi è il messaggio sostitutivo inserito "
+                "dall'autore del modulo. Per compilarlo aprilo con Adobe Reader (gratuito), oppure chiedi "
+                "all'ente una versione PDF normale.")
+        elif n:
+            self.banner.setStyleSheet(style + "background:#e8f0fe; color:#1a3a7a;")
+            extra = (" I valori vengono salvati nei campi standard: il modulo XFA originale viene convertito."
+                     if xfa == "hybrid" else "")
+            self.banner.setText(f"<b>Modulo compilabile</b> ({n} campi). Clicca un campo per compilarlo, "
+                                f"<b>Tab</b> per passare al successivo, Esc per annullare.{extra}")
+        else:
+            self.banner.setVisible(False)
+            return
+        self.banner.setVisible(True)
 
     def refresh(self, full: bool = True, page: int | None = None) -> None:
         if full:
@@ -223,6 +258,8 @@ class MainWindow(QMainWindow):
         self.a_fit_w = self._act("Adatta alla larghezza", lambda: self._fit("width"), "Ctrl+2", glyph_icon("↔"))
         self.a_fit_p = self._act("Pagina intera", lambda: self._fit("page"), "Ctrl+1", glyph_icon("⤢"))
         self.a_actual = self._act("Dimensioni reali (100%)", lambda: self._set_zoom(1.0), "Ctrl+0")
+        self.a_fields = self._act("Evidenzia campi dei moduli", self.toggle_fields, None, checkable=True)
+        self.a_fields.setChecked(self.settings.value("highlight_fields", True, type=bool))
         self.a_thumbs = self._act("Pannello miniature", self.toggle_thumbs, "F4", checkable=True)
         self.a_thumbs.setChecked(True)
         self.a_fullscreen = self._act("Schermo intero", self.toggle_fullscreen, "F11")
@@ -323,6 +360,7 @@ class MainWindow(QMainWindow):
             m.addAction(a)
         m.addSeparator()
         m.addAction(self.a_thumbs)
+        m.addAction(self.a_fields)
         m.addAction(self.a_fullscreen)
 
         m = mb.addMenu("&Pagine")
@@ -596,6 +634,8 @@ class MainWindow(QMainWindow):
         t.view.zoomChanged.connect(self._sync_zoom_combo)
         t.view.toolAction.connect(self.on_tool_action)
         t.view.inlineEditFinished.connect(self._inline_edit_done)
+        t.view.fieldEdited.connect(self._field_edited)
+        t.view.set_show_fields(self.a_fields.isChecked())
         t.thumbs.orderChanged.connect(self.reorder_pages)
         t.thumbs.setContextMenuPolicy(Qt.ActionsContextMenu)
         for a in (self.a_rot_l, self.a_rot_r, self.a_dup, self.a_ins_blank, self.a_ins_file, self.a_extract,
@@ -1050,6 +1090,28 @@ class MainWindow(QMainWindow):
             w = self.tabs.widget(i)
             if isinstance(w, DocumentTab):
                 w.thumbs.setVisible(checked)
+
+    def toggle_fields(self, checked: bool) -> None:
+        self.settings.setValue("highlight_fields", checked)
+        for i in range(self.tabs.count()):
+            w = self.tabs.widget(i)
+            if isinstance(w, DocumentTab):
+                w.view.set_show_fields(checked)
+
+    def _field_edited(self, field, value) -> None:
+        d = self.doc()
+        t = self.tab()
+        if not d or not t:
+            return
+        try:
+            d.set_widget_value(field.page, field.xref, value)
+        except Exception as exc:
+            self._error("Compilazione del campo", exc)
+            return
+        t.view.refresh_fields()
+        self._changed(full=False, page=field.page)
+        if field.kind == "radio":
+            t.view.refresh_page(field.page)  # altri pulsanti dello stesso gruppo
 
     def toggle_fullscreen(self) -> None:
         self.showNormal() if self.isFullScreen() else self.showFullScreen()
