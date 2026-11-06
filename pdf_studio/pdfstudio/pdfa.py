@@ -145,8 +145,14 @@ def convert_to_pdfa(pdf_bytes: bytes, out_path: str, level: int = 2, title: str 
 
 
 def check_pdfa(path_or_bytes) -> list[str]:
-    """Controlli essenziali (non sostituisce un validatore completo come veraPDF)."""
-    doc = pymupdf.open(path_or_bytes) if isinstance(path_or_bytes, str) else pymupdf.open("pdf", path_or_bytes)
+    """Controlli essenziali (non sostituisce un validatore completo come veraPDF).
+    Accetta un percorso, i byte del file o un documento già aperto."""
+    if isinstance(path_or_bytes, pymupdf.Document):
+        doc = path_or_bytes
+        own = False
+    else:
+        doc = pymupdf.open(path_or_bytes) if isinstance(path_or_bytes, str) else pymupdf.open("pdf", path_or_bytes)
+        own = True
     issues = []
     try:
         if doc.is_encrypted or doc.needs_pass:
@@ -167,8 +173,19 @@ def check_pdfa(path_or_bytes) -> list[str]:
         if "/JavaScript" in doc.xref_object(cat) or "/JS" in doc.xref_object(cat):
             issues.append("Il documento contiene JavaScript")
     finally:
-        doc.close()
+        if own:
+            doc.close()
     return issues
+
+
+def pdfa_label(part: str | None) -> str:
+    """'2B' → 'PDF/A-2b'."""
+    if not part:
+        return ""
+    return f"PDF/A-{part[0]}{part[1:].lower()}"
+
+
+STANDARDS = {"1": "ISO 19005-1", "2": "ISO 19005-2", "3": "ISO 19005-3", "4": "ISO 19005-4"}
 
 
 def pdfa_part(path_or_bytes) -> str | None:

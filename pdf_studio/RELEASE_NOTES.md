@@ -10,6 +10,7 @@ Al primo avvio Windows può mostrare «Windows ha protetto il PC» (programma se
 
 ### Novità della 1.4
 - **Moduli PDF compilabili** come in Acrobat: i campi sono evidenziati in azzurro, si scrive direttamente nel campo, **Tab** / **Maiusc+Tab** per passare al campo successivo o precedente, clic per caselle e pulsanti di scelta, menu a discesa per gli elenchi. Ogni modifica si annulla con Ctrl+Z. Evidenziazione attivabile da *Visualizza → Evidenzia campi dei moduli*.
+- **PDF/A riconoscibile**: aprendo un file PDF/A compare una barra verde «✔ Documento PDF/A-2b» con l'esito dei controlli di conformità (anche in Proprietà e nella barra di stato); se lo modifichi, al salvataggio viene proposto di mantenerlo PDF/A.
 - **Moduli XFA** (Adobe LiveCycle): quelli ibridi si compilano normalmente e i valori vengono salvati nei campi standard, leggibili da tutti i programmi; per quelli dinamici, che solo Adobe Reader sa mostrare, compare un avviso che spiega cosa fare.
 
 ### Correzioni della 1.3.1

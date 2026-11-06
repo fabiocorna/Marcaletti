@@ -101,12 +101,10 @@ class DocumentTab(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        self.banner = QLabel()
-        self.banner.setWordWrap(True)
-        self.banner.setTextFormat(Qt.RichText)
-        self.banner.setVisible(False)
-        self.banner.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        outer.addWidget(self.banner)
+        self.banners = QVBoxLayout()
+        self.banners.setContentsMargins(0, 0, 0, 0)
+        self.banners.setSpacing(0)
+        outer.addLayout(self.banners)
         lay = QHBoxLayout()
         lay.setContentsMargins(0, 0, 0, 0)
         outer.addLayout(lay, 1)
@@ -124,28 +122,55 @@ class DocumentTab(QWidget):
         self.view.set_document(document)
         self.update_banner()
 
+    BANNER_STYLES = {
+        "info": "background:#e8f0fe; color:#1a3a7a;",
+        "ok": "background:#e6f4ea; color:#14532d;",
+        "warn": "background:#fff3cd; color:#5c4400;",
+    }
+
+    def _add_banner(self, html: str, kind: str) -> None:
+        label = QLabel(html)
+        label.setWordWrap(True)
+        label.setTextFormat(Qt.RichText)
+        label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        label.setStyleSheet("padding:6px 10px; border-bottom:1px solid #c9c9c9;" + self.BANNER_STYLES[kind])
+        self.banners.addWidget(label)
+
     def update_banner(self) -> None:
-        """Avviso per i moduli compilabili e per i moduli XFA."""
-        xfa = self.document.xfa_kind()
+        """Barre informative: conformità PDF/A, moduli compilabili e moduli XFA."""
+        while self.banners.count():
+            w = self.banners.takeAt(0).widget()
+            if w is not None:
+                w.deleteLater()
+        d = self.document
+        if d.pdfa:
+            from . import pdfa
+            label = pdfa.pdfa_label(d.pdfa)
+            std = pdfa.STANDARDS.get(d.pdfa[0], "")
+            issues = pdfa.check_pdfa(d.doc)
+            if issues:
+                self._add_banner(
+                    f"<b>⚠ Il documento dichiara la conformità {label}</b> ({std}), ma i controlli di base "
+                    f"segnalano problemi: {'; '.join(issues)}. Usa <i>File → Salva come PDF/A</i> per "
+                    "correggerlo.", "warn")
+            else:
+                self._add_banner(
+                    f"<b>✔ Documento {label}</b> — conforme allo standard per l'archiviazione a lungo termine "
+                    f"({std}); controlli di base superati. Se lo modifichi, al salvataggio ti verrà proposto di "
+                    f"mantenerlo {label}.", "ok")
+        xfa = d.xfa_kind()
         n = sum(1 for f in self.view._fields if f.kind in V.EDITABLE_KINDS and not f.readonly)
-        style = "padding:6px 10px; border-bottom:1px solid #c9c9c9;"
         if xfa == "dynamic":
-            self.banner.setStyleSheet(style + "background:#fff3cd; color:#5c4400;")
-            self.banner.setText(
+            self._add_banner(
                 "<b>Modulo XFA dinamico (Adobe LiveCycle).</b> Questo tipo di modulo può essere visualizzato e "
                 "compilato solo con Adobe Acrobat Reader: quello che vedi è il messaggio sostitutivo inserito "
                 "dall'autore del modulo. Per compilarlo aprilo con Adobe Reader (gratuito), oppure chiedi "
-                "all'ente una versione PDF normale.")
+                "all'ente una versione PDF normale.", "warn")
         elif n:
-            self.banner.setStyleSheet(style + "background:#e8f0fe; color:#1a3a7a;")
             extra = (" I valori vengono salvati nei campi standard: il modulo XFA originale viene convertito."
                      if xfa == "hybrid" else "")
-            self.banner.setText(f"<b>Modulo compilabile</b> ({n} campi). Clicca un campo per compilarlo, "
-                                f"<b>Tab</b> per passare al successivo, Esc per annullare.{extra}")
-        else:
-            self.banner.setVisible(False)
-            return
-        self.banner.setVisible(True)
+            self._add_banner(f"<b>Modulo compilabile</b> ({n} campi). Clicca un campo per compilarlo, "
+                             f"<b>Tab</b> per passare al successivo, Esc per annullare.{extra}", "info")
 
     def refresh(self, full: bool = True, page: int | None = None) -> None:
         if full:
@@ -526,7 +551,8 @@ class MainWindow(QMainWindow):
             page = d.page(min(t.view.current_page, d.page_count - 1))
             w_mm, h_mm = page.rect.width * 25.4 / 72, page.rect.height * 25.4 / 72
             lock = "  🔒" if d.encryption else ""
-            badges = (f"  PDF/A-{d.pdfa}" if d.pdfa else "") + \
+            from .pdfa import pdfa_label
+            badges = (f"  ✔ {pdfa_label(d.pdfa)}" if d.pdfa else "") + \
                      (("  ✔ firmato" if all(x.integrity_ok for x in d.signers) else "  ✘ firma non valida")
                       if d.signers else "")
             self.status_info.setText(f"{w_mm:.0f} × {h_mm:.0f} mm   {t.view.zoom * 100:.0f}%{lock}{badges}")
@@ -684,11 +710,15 @@ class MainWindow(QMainWindow):
             return False
         if not d.path:
             return self.save_as()
-        try:
-            d.save()
-        except Exception as exc:
-            self._error("Errore di salvataggio", exc)
+        handled = self._save_keeping_pdfa(d, d.path)
+        if handled is None:
             return False
+        if not handled:
+            try:
+                d.save()
+            except Exception as exc:
+                self._error("Errore di salvataggio", exc)
+                return False
         self.statusBar().showMessage(f"Salvato: {d.path}", 4000)
         self._update_ui()
         return True
@@ -703,14 +733,55 @@ class MainWindow(QMainWindow):
             return False
         if not path.lower().endswith(".pdf"):
             path += ".pdf"
-        try:
-            d.save(path)
-        except Exception as exc:
-            self._error("Errore di salvataggio", exc)
+        handled = self._save_keeping_pdfa(d, path)
+        if handled is None:
             return False
+        if not handled:
+            try:
+                d.save(path)
+            except Exception as exc:
+                self._error("Errore di salvataggio", exc)
+                return False
         self._add_recent(path)
         self.settings.setValue("last_dir", os.path.dirname(path))
         self._update_ui()
+        return True
+
+    def _save_keeping_pdfa(self, d: PdfDocument, path: str) -> bool | None:
+        """Per un file PDF/A modificato propone di salvarlo ancora come PDF/A.
+        Ritorna True se ha salvato, False per il salvataggio normale, None se annullato."""
+        if not d.pdfa or not d.modified:
+            return False
+        from . import pdfa
+        label = pdfa.pdfa_label(d.pdfa)
+        if d.encryption or not pdfa.find_ghostscript():
+            return False
+        box = QMessageBox(QMessageBox.Question, "Documento PDF/A",
+                          f"Questo documento era {label}. Le modifiche possono renderlo non più conforme.\n\n"
+                          f"Vuoi salvarlo di nuovo come {label}?", parent=self)
+        keep = box.addButton(f"Salva come {label}", QMessageBox.AcceptRole)
+        plain = box.addButton("Salva come PDF normale", QMessageBox.DestructiveRole)
+        box.addButton("Annulla", QMessageBox.RejectRole)
+        box.setDefaultButton(keep)
+        box.exec()
+        if box.clickedButton() is plain:
+            d.pdfa = None
+            return False
+        if box.clickedButton() is not keep:
+            return None
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            issues = pdfa.convert_to_pdfa(d.to_bytes(encryption=False), path, int(d.pdfa[0]),
+                                          d.get_metadata().get("title") or None)
+        except Exception as exc:
+            QApplication.restoreOverrideCursor()
+            self._error("PDF/A", exc)
+            return None
+        QApplication.restoreOverrideCursor()
+        d.path = path
+        d.modified = False
+        if issues:
+            QMessageBox.warning(self, "PDF/A", "Salvato, con avvisi:\n• " + "\n• ".join(issues))
         return True
 
     def compress(self) -> None:
@@ -877,13 +948,15 @@ class MainWindow(QMainWindow):
         d = self._require_doc()
         if not d:
             return
+        from .pdfa import pdfa_label
         size = os.path.getsize(d.path) / 1024 if d.path and os.path.exists(d.path) else 0
         p0 = d.page(0).rect
         info = (f"<small>File: {d.path or '(non salvato)'}<br>Dimensione: {size:.0f} KB<br>"
                 f"Pagine: {d.page_count}<br>Formato prima pagina: {p0.width * 25.4 / 72:.0f} × "
                 f"{p0.height * 25.4 / 72:.0f} mm<br>Versione PDF: {d.doc.metadata.get('format', '')}<br>"
                 f"Moduli compilabili: {'sì' if d.has_forms() else 'no'}<br>"
-                f"Protezione: {'sì' if d.encryption else 'no'}</small>")
+                f"Protezione: {'sì' if d.encryption else 'no'}<br>"
+                f"Conformità PDF/A: {pdfa_label(d.pdfa) if d.pdfa else 'no'}</small>")
         dlg = MetadataDialog(d.get_metadata(), info, self)
         if dlg.exec():
             d.set_metadata(dlg.values())

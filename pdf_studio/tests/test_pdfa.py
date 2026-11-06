@@ -45,3 +45,20 @@ def test_encrypted_refused(tmp_path):
 def test_check_detects_plain_pdf():
     issues = pdfa.check_pdfa(sample().to_bytes())
     assert any("XMP" in i for i in issues)
+
+
+def test_label_and_check_open_document(tmp_path):
+    out = str(tmp_path / "a2.pdf")
+    pdfa.convert_to_pdfa(sample().to_bytes(), out, 2)
+    assert pdfa.pdfa_label(pdfa.pdfa_part(out)) == "PDF/A-2b"
+    d = PdfDocument.open(out)
+    assert d.pdfa == "2B"
+    assert pdfa.check_pdfa(d.doc) == []          # documento aperto, non viene chiuso
+    assert d.page_count == 1
+    assert PdfDocument.open(sample_path(tmp_path)).pdfa is None
+
+
+def sample_path(tmp_path):
+    p = str(tmp_path / "normale.pdf")
+    sample().save(p)
+    return p
