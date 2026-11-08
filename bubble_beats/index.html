@@ -15,6 +15,27 @@
   #tools{position:absolute;left:4px;z-index:5;display:flex;flex-direction:column;gap:6px}
   #tools button{width:30px;height:30px;border-radius:50%;border:2px solid #ffd23f;background:#1a0c33dd;color:#ffd23f;
     font:9px "Press Start 2P",monospace;line-height:1;cursor:pointer;padding:0}
+  #quiz{position:absolute;left:0;right:0;bottom:0;z-index:4;background:#06020f;overflow:auto;display:flex;
+    font-family:"Press Start 2P",monospace;color:#fff;line-height:1.7;box-sizing:border-box;padding:3% 5%;border-radius:0 0 6px 6px}
+  #quiz[hidden]{display:none}
+  #quiz{font-variant-ligatures:none}
+  #quiz.full{position:fixed;inset:0;z-index:20;border-radius:0;
+    padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+  .qbox{margin:auto;width:100%}
+  .qt{color:#ffd23f;font-size:1.4em;text-align:center}
+  .qc{color:#7df9ff;text-align:center;margin:.3em 0 .9em}
+  .qq{text-align:center;margin:0 0 .8em}
+  #qopts{display:flex;flex-direction:column;gap:.5em}
+  #qopts button{width:100%;padding:.7em .9em;background:#1c1238;border:3px solid #4a3c7a;border-radius:10px;color:#fff;
+    font:inherit;line-height:1.5;text-align:left;cursor:pointer}
+  #qopts button b{color:#c4b5fd;margin-right:.8em}
+  #qopts button.sel{border-color:#ffd23f;background:#3a2370}
+  #qopts button.ok{border-color:#38e07b;background:#0f5530}
+  #qopts button.no{border-color:#ff3d6e;background:#5c1430}
+  .qr{text-align:center;font-size:1.2em;margin:.7em 0 .3em}
+  .qe{color:#fff1b8;margin:.2em 0;text-align:center}
+  .qh{color:#c4b5fd;text-align:center;margin:.6em 0 0}
+  .qr:empty,.qe:empty{display:none}
   #touch{display:none;width:100%;max-width:800px;justify-content:space-between;padding:10px 16px;box-sizing:border-box;gap:12px}
   #touch.on{display:flex}
   #touch.overlay{position:fixed;bottom:0;left:0;right:0;max-width:none;pointer-events:none}
@@ -30,6 +51,12 @@
 <body>
 <div id="wrap">
   <div id="stage"><canvas id="game"></canvas>
+    <div id="quiz" hidden><div class="qbox">
+      <div class="qt">SFIDA DEL SAPERE</div><div class="qc" id="qc"></div>
+      <p class="qq" id="qq"></p>
+      <div id="qopts"><button data-i="0"></button><button data-i="1"></button><button data-i="2"></button></div>
+      <p class="qr" id="qr"></p><p class="qe" id="qe"></p><p class="qh" id="qh"></p>
+    </div></div>
     <div id="tools"><button id="mute" title="Musica on/off (M)">♪</button><button id="retro" title="Stile pixel / HD (R)">PX</button></div>
   </div>
   <div id="touch">
@@ -45,12 +72,13 @@
    ===================================================================== */
 
 // ---------- costanti di gioco ----------
-const T = 24, COLS = 32, ROWS = 26, HUD = 44;
+const T = 24, COLS = 20, ROWS = 17, HUD = 44; // campo compatto: personaggi grandi anche sul telefono
 const GW = COLS * T, GH = ROWS * T, CW = GW, CH = GH + HUD;
 const GRAV = 0.42, MAXF = 6.5, JUMP = 10, PSPD = 2.5;
 const LEFT = 2 * T, RIGHT = (COLS - 2) * T;
-const GAP0 = 14, GAP1 = 17; // varco nel pavimento/soffitto (colonne)
-const PIXEL = 0.5;           // risoluzione interna nello stile retrò (384x334)
+const GAP0 = 8, GAP1 = 11; // varco nel pavimento/soffitto (colonne)
+const PIXEL = 0.5;           // risoluzione interna nello stile retrò (240x226)
+const ES = 1.2;              // scala di disegno dei nemici
 const FONT = '"Press Start 2P", monospace';
 
 const canvas = document.getElementById('game');
@@ -366,13 +394,9 @@ canvas.addEventListener('pointerdown', e => {
   ensureAudio();
   if (G.state === 'title') {
     const r = canvas.getBoundingClientRect(), y = (e.clientY - r.top) / r.height * CH;
-    if (y > 330 && y < 362) G.sel = 0; else if (y >= 362 && y < 396) G.sel = 1;
+    if (y > 214 && y < 244) G.sel = 0; else if (y >= 244 && y < 272) G.sel = 1;
   }
-  if (G.state === 'quiz' && G.quiz && !G.quiz.done) {
-    const r = canvas.getBoundingClientRect(), y = (e.clientY - r.top) / r.height * CH;
-    for (let i = 0; i < 3; i++) if (Math.abs(y - (QY + i * QDY)) < 30) G.tapSel = i;
-    return;
-  }
+  if (G.state === 'quiz' && G.quiz && !G.quiz.done) return;
   sys.start = true;
 });
 document.querySelectorAll('#touch .btn').forEach(b => {
@@ -407,34 +431,34 @@ function pollPads() {
    LIVELLI — piattaforme [riga, colonnaDa, colonnaA], nemici [tipo, col, riga]
    ===================================================================== */
 const LEVELS = [
-  { plats: [[21, 2, 9], [21, 13, 18], [21, 22, 29], [17, 2, 7], [17, 11, 20], [17, 24, 29], [13, 2, 9], [13, 13, 18], [13, 22, 29], [9, 2, 7], [9, 11, 20], [9, 24, 29]],
-    enemies: [['box', 5, 13], ['box', 26, 13], ['box', 14, 9], ['box', 17, 9]] },
-  { plats: [[21, 6, 25], [17, 2, 11], [17, 20, 29], [13, 8, 23], [9, 2, 11], [9, 20, 29], [5, 11, 20]],
-    enemies: [['box', 10, 13], ['box', 21, 13], ['spray', 4, 9], ['spray', 27, 9], ['box', 15, 5]] },
-  { plats: [[21, 4, 7], [21, 12, 19], [21, 24, 27], [17, 2, 5], [17, 9, 12], [17, 19, 22], [17, 26, 29], [13, 5, 9], [13, 14, 17], [13, 22, 26], [9, 2, 5], [9, 9, 12], [9, 19, 22], [9, 26, 29], [5, 7, 13], [5, 18, 24]],
-    enemies: [['vinyl', 8, 12], ['vinyl', 23, 8], ['box', 15, 13], ['box', 10, 9], ['box', 21, 9]] },
-  { plats: [[21, 2, 20], [17, 11, 29], [13, 2, 20], [9, 11, 29], [5, 2, 20]],
-    enemies: [['spray', 18, 17], ['spray', 5, 13], ['box', 20, 9], ['box', 8, 5], ['vinyl', 15, 11], ['box', 25, 17]] },
-  { plats: [[22, 2, 5], [22, 26, 29], [20, 8, 23], [18, 2, 5], [18, 26, 29], [16, 8, 11], [16, 20, 23], [14, 2, 5], [14, 14, 17], [14, 26, 29], [12, 8, 11], [12, 20, 23], [10, 2, 5], [10, 26, 29], [8, 8, 23], [6, 2, 5], [6, 26, 29]],
-    enemies: [['box', 12, 20], ['box', 19, 20], ['spray', 15, 14], ['vinyl', 9, 10], ['vinyl', 22, 10], ['spray', 15, 8]] },
-  { plats: (() => { const p = []; [22, 18, 14, 10, 6].forEach((r, i) => (i % 2 ? [6, 12, 18, 24] : [3, 9, 15, 21, 27]).forEach(c => p.push([r, c, c + 2]))); return p; })(),
-    enemies: [['box', 4, 22], ['box', 28, 22], ['spray', 13, 18], ['spray', 19, 18], ['vinyl', 10, 12], ['vinyl', 21, 12], ['box', 16, 14]] },
-  { plats: [[21, 2, 13], [21, 18, 29], [17, 2, 6], [17, 11, 20], [17, 25, 29], [13, 2, 13], [13, 18, 29], [9, 2, 6], [9, 11, 20], [9, 25, 29], [5, 8, 23]],
-    enemies: [['spray', 5, 21], ['spray', 26, 21], ['box', 15, 17], ['box', 8, 13], ['box', 23, 13], ['vinyl', 15, 7], ['spray', 15, 9]] },
-  { plats: [[21, 4, 27], [17, 7, 24], [13, 10, 21], [9, 13, 18], [5, 15, 16], [15, 2, 4], [15, 27, 29], [9, 2, 4], [9, 27, 29]],
-    enemies: [['box', 6, 21], ['box', 25, 21], ['spray', 9, 17], ['spray', 22, 17], ['box', 12, 13], ['box', 19, 13], ['vinyl', 6, 6], ['vinyl', 25, 6]] },
+  { plats: [[12, 2, 6], [12, 13, 17], [8, 5, 14], [4, 2, 6], [4, 13, 17]],
+    enemies: [['box', 6, 8], ['box', 13, 8], ['box', 15, 4]] },
+  { plats: [[12, 5, 14], [8, 2, 7], [8, 12, 17], [4, 6, 13]],
+    enemies: [['box', 7, 12], ['spray', 3, 8], ['box', 16, 8], ['box', 9, 4]] },
+  { plats: [[12, 2, 4], [12, 8, 11], [12, 15, 17], [8, 4, 7], [8, 12, 15], [4, 2, 4], [4, 8, 11], [4, 15, 17]],
+    enemies: [['vinyl', 9, 10], ['box', 5, 8], ['box', 13, 8], ['spray', 9, 4]] },
+  { plats: [[12, 2, 11], [8, 8, 17], [4, 2, 11]],
+    enemies: [['spray', 10, 8], ['box', 4, 12], ['box', 15, 8], ['vinyl', 14, 6], ['box', 5, 4]] },
+  { plats: [[13, 2, 4], [13, 15, 17], [11, 6, 13], [9, 2, 4], [9, 15, 17], [7, 6, 7], [7, 12, 13], [5, 8, 11]],
+    enemies: [['box', 9, 11], ['spray', 3, 9], ['spray', 16, 9], ['vinyl', 9, 8], ['box', 9, 5]] },
+  { plats: [[13, 3, 5], [13, 9, 10], [13, 14, 16], [9, 2, 3], [9, 6, 7], [9, 12, 13], [9, 16, 17], [5, 3, 5], [5, 9, 10], [5, 14, 16]],
+    enemies: [['box', 4, 13], ['box', 15, 13], ['spray', 6, 9], ['spray', 13, 9], ['vinyl', 9, 7], ['box', 9, 5]] },
+  { plats: [[12, 2, 7], [12, 12, 17], [8, 6, 13], [4, 2, 7], [4, 12, 17]],
+    enemies: [['spray', 3, 12], ['spray', 16, 12], ['box', 9, 8], ['box', 4, 4], ['box', 15, 4], ['vinyl', 9, 6]] },
+  { plats: [[12, 3, 16], [8, 5, 14], [4, 8, 11], [10, 2, 3], [10, 16, 17], [6, 2, 3], [6, 16, 17]],
+    enemies: [['box', 5, 12], ['box', 14, 12], ['spray', 7, 8], ['spray', 12, 8], ['vinyl', 4, 5], ['box', 9, 4], ['vinyl', 15, 5]] },
 ];
 function genLevel(n) {
-  const R = mulberry(n * 9973 + 7), plats = [];
-  for (const row of [21, 17, 13, 9, 5]) {
-    let pos = 2 + Math.floor(R() * 3);
-    while (pos <= 15) {
-      const end = Math.min(15, pos + 1 + Math.floor(R() * 6));
-      plats.push([row, pos, end], [row, 31 - end, 31 - pos]);
-      pos = end + 2 + Math.floor(R() * 4);
+  const R = mulberry(n * 9973 + 7), plats = [], mid = COLS / 2 - 1;
+  for (const row of [12, 8, 4]) {
+    let pos = 2 + Math.floor(R() * 2);
+    while (pos <= mid) {
+      const end = Math.min(mid, pos + 1 + Math.floor(R() * 4));
+      plats.push([row, pos, end], [row, COLS - 1 - end, COLS - 1 - pos]);
+      pos = end + 2 + Math.floor(R() * 3);
     }
   }
-  const count = Math.min(4 + Math.floor(n / 2), 10), enemies = [];
+  const count = Math.min(3 + Math.floor(n / 2), 7), enemies = [];
   for (let i = 0; i < count; i++) {
     const p = plats[Math.floor(R() * plats.length)], k = R();
     const type = k < 0.5 ? 'box' : k < 0.75 ? 'spray' : 'vinyl';
@@ -493,7 +517,7 @@ function clampX(e) {
   return 0;
 }
 
-const EDEF = { box: { w: 26, h: 22, spd: 1.0 }, spray: { w: 18, h: 26, spd: 1.15 }, vinyl: { w: 26, h: 26, spd: 1.1 } };
+const EDEF = { box: { w: 31, h: 26, spd: 1.0 }, spray: { w: 22, h: 31, spd: 1.15 }, vinyl: { w: 31, h: 31, spd: 1.1 } };
 function makeEnemy([type, c, r], i, lvl) {
   const d = EDEF[type], mul = 1 + Math.min(lvl, 16) * 0.035 + (G.nPlayers - 1) * 0.08;
   const e = { type, w: d.w, h: d.h, x: c * T + T / 2 - d.w / 2, y: r * T - d.h, vx: 0, vy: 0, face: c < 16 ? 1 : -1,
@@ -505,7 +529,7 @@ function makeEnemy([type, c, r], i, lvl) {
 }
 const alive = p => !p.out && !p.dead;
 function spawnPlayer(p, inv) {
-  Object.assign(p, { x: p.i ? RIGHT - T - 22 : 3 * T, y: (ROWS - 1) * T - 26, w: 22, h: 26, vx: 0, vy: 0, face: p.i ? -1 : 1,
+  Object.assign(p, { x: p.i ? RIGHT - T - 26 : 3 * T, y: (ROWS - 1) * T - 32, w: 26, h: 32, vx: 0, vy: 0, face: p.i ? -1 : 1,
     onGround: true, shootCD: 0, inv, dead: false, deadT: 0, anim: 0, mouth: 0, rot: 0 });
 }
 function nearestPlayer(e) {
@@ -728,9 +752,9 @@ function updatePlayer(p) {
   if ((k.shoot || k.shootP) && p.shootCD <= 0) {
     p.shootCD = 16; p.mouth = 10; SFX.shoot(); groove(0.012);
     // la nota dipende dall'altezza: più in alto = più acuta
-    const ni = clamp(Math.floor(((ROWS - 1) * T - (p.y + p.h)) / (T * 2.2)), 0, 9), m = playerNote(ni, p.i === 1);
+    const ni = clamp(Math.floor(((ROWS - 1) * T - (p.y + p.h)) / (T * 1.3)), 0, 9), m = playerNote(ni, p.i === 1);
     popups.push({ x: p.x + p.w / 2, y: p.y - 8, text: NOTE_IT[m % 12], t: 20, col: hsl((m % 12) * 30, 90, 72) });
-    const b = { x: p.x + p.w / 2 + p.face * 12, y: p.y + 11, r: 14, vx: p.face * 7.5, vy: 0, phase: 'shot', t: 0,
+    const b = { x: p.x + p.w / 2 + p.face * 12, y: p.y + 13, r: 16, vx: p.face * 7.5, vy: 0, phase: 'shot', t: 0,
       life: 420, enemy: null, special: null, wob: rnd(6), squash: 0, owner: p };
     b.x = clamp(b.x, LEFT + b.r, RIGHT - b.r);
     bubbles.push(b);
@@ -754,7 +778,7 @@ function updateBubbles() {
       if (b.x - b.r < LEFT) { b.x = LEFT + b.r; b.vx = 0; }
       if (b.x + b.r > RIGHT) { b.x = RIGHT - b.r; b.vx = 0; }
       for (const e of enemies) if (canHit(e) && circleRect(b, e)) {
-        b.enemy = e; e.trapped = true; b.phase = 'float'; b.vx *= 0.2; b.r = 16;
+        b.enemy = e; e.trapped = true; b.phase = 'float'; b.vx *= 0.2; b.r = 20;
         b.life = Math.max(260, 60 * 8 - G.level * 8); SFX.trap(); burst(b.x, b.y, '#9ff', 6, 2);
         break;
       }
@@ -888,13 +912,13 @@ const ITEMS = [{ k: 'coin', p: 500, w: 40 }, { k: 'mic', p: 1000, w: 25 }, { k: 
 function spawnItem(cx, bottom) {
   let r = rnd(100), it = ITEMS[0];
   for (const i of ITEMS) { if (r < i.w) { it = i; break; } r -= i.w; }
-  items.push({ kind: it.k, pts: it.p, x: clamp(cx - 11, LEFT, RIGHT - 22), y: bottom - 22, w: 22, h: 22, vy: 0, t: 0, life: 600 });
+  items.push({ kind: it.k, pts: it.p, x: clamp(cx - 13, LEFT, RIGHT - 26), y: bottom - 26, w: 26, h: 26, vy: 0, t: 0, life: 600 });
 }
 function updateItems() {
   for (const it of items) {
     it.t++; it.vy = Math.min(it.vy + GRAV, MAXF); moveVert(it);
     for (const p of players) if (!it.gone && alive(p) && overlap(it, p)) {
-      it.gone = true; addScore(p, it.pts * gmult(), it.x + 11, it.y, '#7df9ff'); groove(0.05); SFX.item(); burst(it.x + 11, it.y + 11, '#ffd23f', 8, 2.5);
+      it.gone = true; addScore(p, it.pts * gmult(), it.x + 13, it.y, '#7df9ff'); groove(0.05); SFX.item(); burst(it.x + 13, it.y + 13, '#ffd23f', 8, 2.5);
     }
     if (--it.life <= 0) it.gone = true;
   }
@@ -1093,9 +1117,9 @@ function drawEnemy(c, e, x, y, s = 1, rot = 0, pulse = 0) {
   c.restore();
 }
 function drawItem(c, it) {
-  const x = it.x + 11, y = it.y + 22, f = Math.sin(it.t * 0.1) * 1.5;
+  const x = it.x + 13, y = it.y + 26, f = Math.sin(it.t * 0.1) * 1.5;
   if (it.life < 120 && Math.floor(it.life / 5) % 2) return;
-  c.save(); c.translate(x, y - 11 + f);
+  c.save(); c.translate(x, y - 13 + f); c.scale(1.2, 1.2);
   c.fillStyle = 'rgba(255,240,150,.18)'; circ(c, 0, 0, 13);
   switch (it.kind) {
     case 'coin':
@@ -1126,7 +1150,7 @@ function drawBubble(c, b, pulse) {
   const wob = Math.sin(G.t * 0.13 + b.wob) * 1.1;
   const rx = b.r + wob + b.squash * 3.5, ry = b.r - wob - b.squash * 3.5;
   const warn = b.enemy && b.life < 120 && Math.floor(b.life / 6) % 2;
-  if (b.enemy) drawEnemy(c, b.enemy, b.x, b.y + b.enemy.h * 0.38, 0.72, Math.sin(G.t * 0.1) * 0.3, pulse);
+  if (b.enemy) drawEnemy(c, b.enemy, b.x, b.y + b.enemy.h * 0.38, 0.72 * ES, Math.sin(G.t * 0.1) * 0.3, pulse);
   const col = b.special ? [255, 210, 63] : warn ? [255, 80, 100] : b.enemy ? [120, 230, 255] : [110, 255, 230];
   const [r, g, bl] = col;
   c.save(); c.translate(b.x, b.y);
@@ -1158,6 +1182,8 @@ function drawBall(c, x, y, r, col) {
 /* =====================================================================
    RENDER
    ===================================================================== */
+// dimensione del font che fa stare una scritta nella larghezza del campo
+const fit = (str, max) => Math.max(16, Math.min(max, Math.floor((CW - 40) / str.length / 8) * 8));
 function text(s, x, y, size, col, align = 'center', shadow = '#000') {
   ctx.font = `${size}px ${FONT}`; ctx.textAlign = align; ctx.textBaseline = 'middle';
   x = Math.round(x / 2) * 2; y = Math.round(y / 2) * 2;
@@ -1169,19 +1195,20 @@ function render() {
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   ctx.imageSmoothingEnabled = !G.retro;
   const pulse = beatPulse();
+  syncQuiz();
   if (G.state === 'title') { renderTitle(pulse); return; }
   // HUD
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, CW, HUD);
   const p1 = players[0], p2 = players[1];
   text('1UP', 20, 13, 16, PAL[0].ui, 'left', null);
   text(pad(p1.score), 20, 33, 16, '#fff', 'left', null);
-  for (let i = 0; i < Math.min(p1.lives, 5); i++) drawDragon(ctx, 86 + i * 18, 20, 1, { s: 0.42 }, PAL[0]);
+  for (let i = 0; i < Math.min(p1.lives, 3); i++) drawDragon(ctx, 78 + i * 16, 21, 1, { s: 0.4 }, PAL[0]);
   text('HI-SCORE', CW / 2, 13, 16, '#ffd23f', 'center', null);
   text(pad(HI), CW / 2, 33, 16, '#fff', 'center', null);
   if (p2) {
     text('2UP', CW - 20, 13, 16, PAL[1].ui, 'right', null);
     text(pad(p2.score), CW - 20, 33, 16, '#fff', 'right', null);
-    for (let i = 0; i < Math.min(p2.lives, 5); i++) drawDragon(ctx, CW - 86 - i * 18, 20, -1, { s: 0.42 }, PAL[1]);
+    for (let i = 0; i < Math.min(p2.lives, 3); i++) drawDragon(ctx, CW - 78 - i * 16, 21, -1, { s: 0.4 }, PAL[1]);
   } else {
     text('ROUND', CW - 20, 13, 16, '#7df9ff', 'right', null);
     text(String(G.level + 1), CW - 20, 33, 16, '#fff', 'right', null);
@@ -1211,15 +1238,15 @@ function render() {
     if (e.trapped) continue;
     if (e.spawn > 0) {
       ctx.globalAlpha = 1 - e.spawn / 60;
-      drawEnemy(ctx, e, e.x + e.w / 2, e.y + e.h, 1 + e.spawn / 60, 0, pulse);
+      drawEnemy(ctx, e, e.x + e.w / 2, e.y + e.h, ES * (1 + e.spawn / 60), 0, pulse);
       ctx.globalAlpha = 1; continue;
     }
-    drawEnemy(ctx, e, e.x + e.w / 2, e.y + e.h, 1, e.dead ? e.rot : 0, pulse);
+    drawEnemy(ctx, e, e.x + e.w / 2, e.y + e.h, ES, e.dead ? e.rot : 0, pulse);
   }
   for (const p of players) {
     if (p.out || (p.inv > 0 && Math.floor(p.inv / 4) % 2)) continue;
     drawDragon(ctx, p.x + p.w / 2, p.y + p.h, p.face, { t: p.anim, walk: p.onGround && p.vx !== 0 && !p.dead, air: !p.onGround,
-      mouth: p.mouth > 0 || p.dead, rot: p.dead ? p.rot : 0, sq: p.dead ? 0 : p.sq, beat: p.onGround && !p.vx ? pulse : 0 }, PAL[p.i]);
+      mouth: p.mouth > 0 || p.dead, rot: p.dead ? p.rot : 0, sq: p.dead ? 0 : p.sq, beat: p.onGround && !p.vx ? pulse : 0, s: 1.25 }, PAL[p.i]);
   }
   for (const b of bubbles) drawBubble(ctx, b, pulse);
   for (const s of shots) {
@@ -1252,15 +1279,15 @@ function render() {
       ctx.fillStyle = '#000'; ctx.beginPath(); ctx.rect(0, HUD, CW, GH);
       ctx.arc(p.x + p.w / 2, HUD + p.y + p.h / 2, Math.max(1, rad), 0, Math.PI * 2, true); ctx.fill();
     }
-    ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(0, cy - 90, CW, 180);
-    text('ROUND ' + (G.level + 1), CW / 2, cy - 52, 48, '#ffd23f');
+    ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(0, cy - 88, CW, 180);
+    text('ROUND ' + (G.level + 1), CW / 2, cy - 56, 40, '#ffd23f');
     text('Tonalità: ' + G.keyName, CW / 2, cy - 4, 16, '#7df9ff');
-    wrapText(G.tip, CW / 2, cy + 40, 680, 16, '#fff1b8', 22, true);
+    wrapText(G.tip, CW / 2, cy + 40, CW - 40, 16, '#fff1b8', 20, true);
     if (G.introT < 50) text('PRONTI!', CW / 2, cy + 120, 32, '#fff');
   }
   if (G.banner) {
     const b = G.banner;
-    if (Math.floor(b.t / 8) % 2 || b.t > 40) text(b.text, CW / 2, cy - 10, b.text.length > 12 ? 32 : 48, b.col);
+    if (Math.floor(b.t / 8) % 2 || b.t > 40) text(b.text, CW / 2, cy - 10, fit(b.text, 48), b.col);
   }
   if (G.state === 'play' || G.state === 'intro') drawGroove(pulse);
   if (G.clearT > 0 && G.result && G.state !== 'quiz') drawResult();
@@ -1272,10 +1299,10 @@ function render() {
   }
   if (G.state === 'over') {
     ctx.fillStyle = `rgba(0,0,0,${Math.min(0.8, G.overT / 60)})`; ctx.fillRect(0, HUD, CW, GH);
-    text('GAME OVER', CW / 2, cy - 30, 48, '#ff3d6e');
-    players.forEach((p, i) => text(`${PAL[i].name} ${pad(p.score)}`, CW / 2, cy + 30 + i * 30, 16, PAL[i].ui));
-    if (G.overT > 90 && Math.floor(G.t / 30) % 2) text(isTouch ? 'TOCCA PER CONTINUARE' : 'PREMI INVIO', CW / 2, cy + 110, 16, '#ffd23f');
-    if (G.overFact) wrapText('LO SAPEVI? ' + G.overFact, CW / 2, cy + 200, 680, 16, '#fff1b8', 24, true);
+    text('GAME OVER', CW / 2, cy - 110, 40, '#ff3d6e');
+    players.forEach((p, i) => text(`${PAL[i].name} ${pad(p.score)}`, CW / 2, cy - 56 + i * 26, 16, PAL[i].ui));
+    if (G.overT > 90 && Math.floor(G.t / 30) % 2) text(isTouch ? 'TOCCA PER CONTINUARE' : 'PREMI INVIO', CW / 2, cy + 160, 16, '#ffd23f');
+    if (G.overFact) wrapText('LO SAPEVI? ' + G.overFact, CW / 2, cy + 50, CW - 40, 16, '#fff1b8', 20, true);
   }
 }
 function wrapText(str, x, y, maxW, size, col, lh, vc) {
@@ -1288,7 +1315,7 @@ function wrapText(str, x, y, maxW, size, col, lh, vc) {
   return lines.length;
 }
 function drawGroove(pulse) {
-  const lv = grooveLv(), L = GROOVE_LV[lv], w = 300, h = 22, x = CW / 2 - w / 2, y = HUD + 2;
+  const lv = grooveLv(), L = GROOVE_LV[lv], w = 232, h = 22, x = CW / 2 - w / 2, y = HUD + 2;
   ctx.fillStyle = 'rgba(0,0,0,.8)'; rr(ctx, x - 3, y - 2, w + 6, h + 5, 8);
   ctx.fillStyle = 'rgba(255,255,255,.08)'; rr(ctx, x, y, w, h, 6);
   ctx.globalAlpha = 0.6 + pulse * 0.4; ctx.fillStyle = L.col; rr(ctx, x, y, Math.max(8, w * G.groove), h, 6); ctx.globalAlpha = 1;
@@ -1305,45 +1332,46 @@ function drawStar(x, y, r, on) {
 function drawResult() {
   const r = G.result, cy = HUD + GH / 2;
   ctx.globalAlpha = Math.min(1, G.clearT / 15);
-  ctx.fillStyle = '#ffd23f'; rr(ctx, 100, cy - 124, CW - 200, 248, 18);
-  ctx.fillStyle = 'rgba(12,4,30,.96)'; rr(ctx, 104, cy - 120, CW - 208, 240, 16);
-  text('ROUND COMPLETATO!', CW / 2, cy - 88, 32, '#38e07b');
+  ctx.fillStyle = '#ffd23f'; rr(ctx, 20, cy - 124, CW - 40, 248, 18);
+  ctx.fillStyle = 'rgba(12,4,30,.96)'; rr(ctx, 24, cy - 120, CW - 48, 240, 16);
+  text('ROUND COMPLETATO!', CW / 2, cy - 88, 24, '#38e07b');
   for (let i = 0; i < 3; i++) {
     const on = i < r.stars && G.clearT > 40 + i * 22, pop = on ? Math.max(0, 1 - (G.clearT - 40 - i * 22) / 12) : 0;
     drawStar(CW / 2 - 76 + i * 76, cy - 30, 26 + pop * 10, on);
   }
-  text(`TEMPO ${r.time}s ` + (r.fast ? 'OK' : '(SERVE < 30s)'), CW / 2, cy + 30, 16, r.fast ? '#7df9ff' : '#8e80b8');
-  text(`CATENA MIGLIORE ${r.chain} ` + (r.chain3 ? 'OK' : '(SERVE 3+)'), CW / 2, cy + 60, 16, r.chain3 ? '#7df9ff' : '#8e80b8');
+  text(`TEMPO ${r.time}s ` + (r.fast ? 'OK' : '(< 30s)'), CW / 2, cy + 30, 16, r.fast ? '#7df9ff' : '#8e80b8');
+  text(`CATENA ${r.chain} ` + (r.chain3 ? 'OK' : '(SERVE 3+)'), CW / 2, cy + 60, 16, r.chain3 ? '#7df9ff' : '#8e80b8');
   if (r.best) text('NUOVO RECORD DI STELLE!', CW / 2, cy + 94, 16, '#ffd23f');
-  else if ((G.level + 1) % 2 === 0) text('IN ARRIVO: SFIDA DEL SAPERE', CW / 2, cy + 94, 16, '#ff8ad8');
+  else if ((G.level + 1) % 2 === 0) text('PROSSIMO: QUIZ!', CW / 2, cy + 94, 16, '#ff8ad8');
   ctx.globalAlpha = 1;
 }
-const QY = 316, QDY = 68;
-function renderQuiz() {
-  const z = G.quiz, Q = z.Q, blink = Math.floor(G.t / 20) % 2;
-  ctx.fillStyle = '#06020f'; ctx.fillRect(0, HUD, CW, GH);
-  text('SFIDA DEL SAPERE', CW / 2, HUD + 36, 32, '#ffd23f');
-  text('- ' + Q.c + ' -', CW / 2, HUD + 76, 16, '#7df9ff');
-  wrapText(Q.q, CW / 2, HUD + 140, 680, 16, '#fff', 26, true);
-  z.opts.forEach((o, i) => {
-    const y = QY + i * QDY, sel = i === z.sel;
-    let bg = sel ? '#3a2370' : '#1c1238', bd = sel ? '#ffd23f' : '#4a3c7a';
-    if (z.done) { if (i === z.right) { bg = '#0f5530'; bd = '#38e07b'; } else if (sel) { bg = '#5c1430'; bd = '#ff3d6e'; } }
-    ctx.fillStyle = bd; rr(ctx, 56, y - 29, CW - 112, 58, 12);
-    ctx.fillStyle = bg; rr(ctx, 60, y - 25, CW - 120, 50, 10);
-    text('ABC'[i], 92, y, 16, sel ? '#ffd23f' : '#c4b5fd');
-    wrapText(o, CW / 2 + 20, y, 560, 16, '#fff', 22, true);
-  });
-  if (!z.done) {
-    text('< >  SCEGLI     BOLLA/SALTA  CONFERMA', CW / 2, 536, 16, blink ? '#c4b5fd' : '#8e80b8');
-    text('RISPOSTE GIUSTE DI FILA: ' + G.quizStreak, CW / 2, 572, 16, '#ff8ad8');
-  } else {
-    text(z.win ? 'ESATTO!  +5000' : 'NON PROPRIO...', CW / 2, 530, 24, z.win ? '#38e07b' : '#ff3d6e');
-    wrapText('LO SAPEVI? ' + Q.e, CW / 2, 590, 690, 16, '#fff1b8', 24, true);
-    if (z.life) text('3 DI FILA: +1 VITA!', CW / 2, 640, 16, '#ffd23f');
-    else if (z.t > 40 && blink) text('PREMI PER CONTINUARE', CW / 2, 648, 16, '#c4b5fd');
+// il quiz è un riquadro HTML sopra il campo: testo nitido anche sul telefono
+const qEl = document.getElementById('quiz'), qBtns = [...qEl.querySelectorAll('#qopts button')];
+const $q = id => document.getElementById(id);
+let qShown = null, qKey = '';
+qBtns.forEach((b, i) => b.addEventListener('click', e => {
+  e.stopPropagation(); ensureAudio(); b.blur();
+  if (G.quiz && !G.quiz.done) G.tapSel = i; else sys.start = true;
+}));
+qEl.addEventListener('click', () => { if (G.quiz && G.quiz.done) sys.start = true; });
+function syncQuiz() {
+  const z = G.state === 'quiz' && !G.paused ? G.quiz : null;
+  qEl.hidden = !z; if (!z) { qShown = null; return; }
+  if (qShown !== z) {
+    qShown = z; $q('qc').textContent = '- ' + z.Q.c + ' -'; $q('qq').textContent = z.Q.q;
+    qBtns.forEach((b, i) => { b.textContent = ''; const l = document.createElement('b'); l.textContent = 'ABC'[i]; b.append(l, z.opts[i]); });
   }
+  const hint = z.done ? (z.life ? '3 DI FILA: +1 VITA! ' : '') + (z.t > 40 ? (isTouch ? 'TOCCA PER CONTINUARE' : 'PREMI PER CONTINUARE') : '')
+    : (isTouch ? 'TOCCA UNA RISPOSTA' : '< > SCEGLI, BOLLA CONFERMA') + ' - DI FILA: ' + G.quizStreak;
+  const key = [z.sel, z.done, hint].join('|');
+  if (key === qKey) return; qKey = key;
+  qBtns.forEach((b, i) => { b.className = z.done ? (i === z.right ? 'ok' : i === z.sel ? 'no' : '') : (i === z.sel ? 'sel' : ''); });
+  $q('qr').textContent = z.done ? (z.win ? 'ESATTO! +5000' : 'NON PROPRIO...') : '';
+  $q('qr').style.color = z.win ? '#38e07b' : '#ff3d6e';
+  $q('qe').textContent = z.done ? 'LO SAPEVI? ' + z.Q.e : '';
+  $q('qh').textContent = hint;
 }
+function renderQuiz() { ctx.fillStyle = '#06020f'; ctx.fillRect(0, HUD, CW, GH); }
 // logo a nuvola
 const CLOUD = (() => {
   const R = mulberry(42), cs = [];
@@ -1355,7 +1383,7 @@ const CLOUD = (() => {
   return cs;
 })();
 function drawLogo(cx, cy, pulse) {
-  ctx.save(); ctx.translate(cx, cy);
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(0.62, 0.62);
   const s = 1 + pulse * 0.02; ctx.scale(s, s);
   ctx.fillStyle = '#12052a'; for (const k of CLOUD) circ(ctx, k.x, k.y, k.r + 7);
   for (const k of CLOUD) {
@@ -1397,25 +1425,25 @@ function renderTitle(pulse) {
     if (b.y < b.r || b.y > CH - b.r) b.vy *= -1;
     drawBall(ctx, b.x, b.y, b.r * (1 + pulse * 0.08), b.col);
   }
-  drawLogo(CW / 2, 160, pulse);
+  drawLogo(CW / 2, 96, pulse);
   // i due draghetti negli angoli
-  drawDragon(ctx, 120, 500, 1, { s: 4, mouth: Math.floor(G.t / 40) % 4 === 0, beat: pulse }, PAL[0]);
-  drawDragon(ctx, CW - 120, 500, -1, { s: 4, mouth: Math.floor(G.t / 40) % 4 === 2, beat: pulse }, PAL[1]);
+  drawDragon(ctx, 50, 318, 1, { s: 2.1, mouth: Math.floor(G.t / 40) % 4 === 0, beat: pulse }, PAL[0]);
+  drawDragon(ctx, CW - 50, 318, -1, { s: 2.1, mouth: Math.floor(G.t / 40) % 4 === 2, beat: pulse }, PAL[1]);
   // menu
   const blink = Math.floor(G.t / 20) % 2;
   ['1 GIOCATORE', '2 GIOCATORI'].forEach((s, i) => {
     const sel = G.sel === i;
-    text(s, CW / 2 + 12, 346 + i * 34, 16, sel ? '#ffd23f' : '#8e80b8');
-    if (sel && blink) text('▶', CW / 2 - 104, 346 + i * 34, 16, '#ffd23f');
+    text(s, CW / 2 + 10, 230 + i * 28, 16, sel ? '#ffd23f' : '#8e80b8');
+    if (sel && blink) text('>', CW / 2 - 98, 230 + i * 28, 16, '#ffd23f');
   });
-  text(isTouch ? 'TOCCA PER INIZIARE' : 'PREMI INVIO', CW / 2, 432, 16, blink ? '#fff' : '#ff3d6e');
-  text('DEXO', 120, 524, 16, PAL[0].ui); text('MIXA', CW - 120, 524, 16, PAL[1].ui);
+  text(isTouch ? 'TOCCA E GIOCA' : 'PREMI INVIO', CW / 2, 300, 16, blink ? '#fff' : '#ff3d6e');
+  text('DEXO', 50, 334, 16, PAL[0].ui); text('MIXA', CW - 50, 334, 16, PAL[1].ui);
   const help = isTouch
-    ? ['SALTA SU UNA BOLLA TENENDO', 'PREMUTO SALTA PER RIMBALZARE', 'BOLLA DORATA = ONDA 808']
-    : ['G1: A D muovi  W salta  SPAZIO bolla', 'G2: FRECCE muovi/salta  INVIO bolla', 'P pausa  M musica  R pixel/HD'];
-  help.forEach((s, i) => text(s.toUpperCase(), CW / 2, 566 + i * 24, 16, '#c4b5fd'));
-  text('HI-SCORE ' + pad(HI) + '   STELLE ' + totalStars(), CW / 2, 648, 16, '#fff');
-  text('SUONA · IMPARA · SCOPPIA', CW / 2, 300, 16, '#fff1b8');
+    ? ['TIENI SALTA SU UNA BOLLA', 'PER RIMBALZARE IN ALTO', 'BOLLA DORATA = ONDA 808']
+    : ['G1: A D W + SPAZIO', 'G2: FRECCE + INVIO', 'P PAUSA M MUSICA R PIXEL'];
+  help.forEach((s, i) => text(s, CW / 2, 364 + i * 20, 16, '#c4b5fd'));
+  text('HI ' + pad(HI) + '  STELLE ' + totalStars(), CW / 2, 434, 16, '#fff');
+  text('SUONA IMPARA SCOPPIA', CW / 2, 196, 16, '#fff1b8');
 }
 
 /* =====================================================================
@@ -1430,7 +1458,10 @@ function resize() {
   canvas.style.width = Math.floor(CW * s) + 'px'; canvas.style.height = Math.floor(CH * s) + 'px';
   canvas.width = Math.round(CW * s * dpr); canvas.height = Math.round(CH * s * dpr);
   const tools = document.getElementById('tools'), bs = Math.round(Math.max(20, 40 * s));
-  tools.style.top = Math.round((HUD + 6) * s) + 'px'; tools.style.left = Math.round(Math.max(2, 4 * s)) + 'px';
+  tools.style.top = Math.round((HUD + 6) * s) + 'px';
+  const full = isTouch && portrait; qEl.classList.toggle('full', full);
+  qEl.style.top = full ? '0' : Math.round(HUD * s) + 'px';
+  qEl.style.fontSize = (full ? Math.max(11, Math.min(14, Math.round(innerWidth / 30))) : Math.max(9, Math.min(14, Math.round(CW * s / 34)))) + 'px'; tools.style.left = Math.round(Math.max(2, 4 * s)) + 'px';
   tools.querySelectorAll('button').forEach(b => { b.style.width = b.style.height = bs + 'px'; b.style.fontSize = Math.round(bs * 0.3) + 'px'; });
   scale = G.retro ? PIXEL : s * dpr;
   buf.width = Math.ceil(CW * scale); buf.height = Math.ceil(CH * scale);
