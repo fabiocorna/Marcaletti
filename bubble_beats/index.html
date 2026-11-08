@@ -393,7 +393,7 @@ document.getElementById('retro').addEventListener('click', e => { setRetro(!G.re
 canvas.addEventListener('pointerdown', e => {
   ensureAudio();
   if (G.state === 'title') {
-    const r = canvas.getBoundingClientRect(), y = (e.clientY - r.top) / r.height * CH;
+    const r = canvas.getBoundingClientRect(), dy = (e.clientY - r.top) * canvas.height / r.height, y = (dy - (VIEW.cam ? VIEW.y0 : 0)) / VIEW.zf;
     if (y > 214 && y < 244) G.sel = 0; else if (y >= 244 && y < 272) G.sel = 1;
   }
   if (G.state === 'quiz' && G.quiz && !G.quiz.done) return;
@@ -573,7 +573,7 @@ function burst(x, y, col, n = 10, spd = 3) {
 const GROOVE_LV = [
   { n: 'LO-FI', add: '', col: '#7a7aa8' },
   { n: 'CHILL', add: '+ BASSO', col: '#3fa9ff' },
-  { n: 'GROOVE', add: '+ CLAP E CHARLESTON', col: '#38e07b' },
+  { n: 'GROOVE', add: '+ CLAP E HI-HAT', col: '#38e07b' },
   { n: 'FLOW', add: '+ MELODIA', col: '#ffd23f' },
   { n: 'FUOCO!', add: '+ SCRATCH DEL DJ', col: '#ff3d6e' },
 ];
@@ -843,7 +843,7 @@ function killEnemy(e, chain) {
   chain.n++; G.bestChain = Math.max(G.bestChain, chain.n);
   const pts = Math.min(1000 * Math.pow(2, chain.n - 1), 64000) * gmult();
   addScore(chain.pl, pts, e.x + e.w / 2, e.y, chain.n > 1 ? '#ff3d6e' : '#ffd23f');
-  if (chain.n >= 2) popups.push({ x: clamp(e.x + e.w / 2, 150, GW - 150), y: e.y - 24, text: COMBO[Math.min(chain.n, COMBO.length - 1)], t: 0, col: '#fff275', big: true });
+  if (chain.n >= 2) popups.push({ x: e.x + e.w / 2, y: e.y - 24, text: COMBO[Math.min(chain.n, COMBO.length - 1)], t: 0, col: '#fff275', big: true });
   burst(e.x + e.w / 2, e.y + e.h / 2, '#fff', 12, 4); burst(e.x + e.w / 2, e.y + e.h / 2, hsl(G.t * 7, 100, 65), 10, 5);
   G.shake = Math.max(G.shake, 5); G.hitstop = 3; groove(0.12); chainNote(chain.n); tone('square', 660, 990, 0.08, 0.05);
 }
@@ -1265,7 +1265,12 @@ function render() {
     else { ctx.globalAlpha = a; ctx.fillStyle = q.col; const s = q.size * a + 1; ctx.fillRect(q.x - s, q.y - s, s * 2, s * 2); }
   }
   ctx.globalAlpha = 1;
-  for (const pp of popups) { ctx.globalAlpha = 1 - pp.t / 60; text(pp.text, pp.x, pp.y, pp.big ? 24 : 16, pp.col); }
+  for (const pp of popups) {
+    ctx.globalAlpha = 1 - pp.t / 60;
+    if (!pp.big) { text(pp.text, pp.x, pp.y, 16, pp.col); continue; }
+    const sz = Math.max(16, Math.min(24, Math.floor((VIEW.vw - 16) / pp.text.length / 8) * 8)), hw = pp.text.length * sz / 2 + 4;
+    text(pp.text, clamp(pp.x, VIEW.x + hw, VIEW.x + VIEW.vw - hw), pp.y, sz, pp.col);
+  }
   ctx.globalAlpha = 1;
   const vg = ctx.createRadialGradient(GW / 2, GH / 2, GH * 0.3, GW / 2, GH / 2, GW * 0.72);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(0,0,0,${0.5 - pulse * 0.15})`);
@@ -1287,7 +1292,7 @@ function render() {
   }
   if (G.banner) {
     const b = G.banner;
-    if (Math.floor(b.t / 8) % 2 || b.t > 40) text(b.text, CW / 2, cy - 10, fit(b.text, 48), b.col);
+    if (Math.floor(b.t / 8) % 2 || b.t > 40) text(b.text, VIEW.x + VIEW.vw / 2, cy - 10, Math.max(16, Math.min(48, Math.floor((VIEW.vw - 24) / b.text.length / 8) * 8)), b.col);
   }
   if (G.state === 'play' || G.state === 'intro') drawGroove(pulse);
   if (G.clearT > 0 && G.result && G.state !== 'quiz') drawResult();
@@ -1315,13 +1320,13 @@ function wrapText(str, x, y, maxW, size, col, lh, vc) {
   return lines.length;
 }
 function drawGroove(pulse) {
-  const lv = grooveLv(), L = GROOVE_LV[lv], w = 232, h = 22, x = CW / 2 - w / 2, y = HUD + 2;
+  const cx = VIEW.x + VIEW.vw / 2, lv = grooveLv(), L = GROOVE_LV[lv], w = Math.min(232, VIEW.vw - 24), h = 22, x = cx - w / 2, y = HUD + 2;
   ctx.fillStyle = 'rgba(0,0,0,.8)'; rr(ctx, x - 3, y - 2, w + 6, h + 5, 8);
   ctx.fillStyle = 'rgba(255,255,255,.08)'; rr(ctx, x, y, w, h, 6);
   ctx.globalAlpha = 0.6 + pulse * 0.4; ctx.fillStyle = L.col; rr(ctx, x, y, Math.max(8, w * G.groove), h, 6); ctx.globalAlpha = 1;
   ctx.fillStyle = 'rgba(255,255,255,.45)'; for (const th of [0.2, 0.45, 0.7, 0.9]) ctx.fillRect(x + w * th - 1, y + 3, 2, h - 6);
-  text(L.n + '  x' + (lv + 1), CW / 2, y + h / 2 + 1, 16, '#fff');
-  if (G.toast) { ctx.globalAlpha = Math.min(1, (150 - G.toast.t) / 30); text(G.toast.text, CW / 2, HUD + 46, 16, G.toast.col); ctx.globalAlpha = 1; }
+  text(L.n + '  x' + (lv + 1), cx, y + h / 2 + 1, 16, '#fff');
+  if (G.toast) { ctx.globalAlpha = Math.min(1, (150 - G.toast.t) / 30); text(G.toast.text, cx, HUD + 46, 16, G.toast.col); ctx.globalAlpha = 1; }
 }
 function drawStar(x, y, r, on) {
   ctx.beginPath();
@@ -1449,27 +1454,55 @@ function renderTitle(pulse) {
 /* =====================================================================
    LOOP & LAYOUT
    ===================================================================== */
+// Telecamera: sul telefono in verticale lo schermo è stretto ma alto, quindi il campo
+// viene ingrandito per riempire l'altezza e la vista segue il draghetto in orizzontale.
+// Durante scritte, stelle, pausa e game over si allarga per mostrare tutto.
+const VIEW = { cam: false, zf: 1, zc: 1, z: 1, x: 0, vw: CW, hudH: HUD, y0: 0 };
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const portrait = innerHeight > innerWidth;
   if (isTouch) { touchEl.classList.add('on'); touchEl.classList.toggle('overlay', !portrait); }
   const availH = innerHeight - (isTouch && portrait ? 120 : 0);
-  const s = Math.min(innerWidth / CW, availH / CH);
-  canvas.style.width = Math.floor(CW * s) + 'px'; canvas.style.height = Math.floor(CH * s) + 'px';
-  canvas.width = Math.round(CW * s * dpr); canvas.height = Math.round(CH * s * dpr);
+  let s = Math.min(innerWidth / CW, availH / CH), cssW = CW * s, cssH = CH * s;
+  const fw = innerWidth / CW, zc = Math.min((availH - HUD * fw) / GH, 1.35);
+  VIEW.cam = fw < availH / CH && zc > fw * 1.15;
+  if (VIEW.cam) { s = fw; cssW = innerWidth; cssH = HUD * fw + GH * zc; }
+  canvas.style.width = Math.floor(cssW) + 'px'; canvas.style.height = Math.floor(cssH) + 'px';
+  canvas.width = Math.round(Math.floor(cssW) * dpr); canvas.height = Math.round(Math.floor(cssH) * dpr);
+  VIEW.zf = canvas.width / CW; VIEW.zc = VIEW.cam ? zc * dpr : VIEW.zf; VIEW.hudH = HUD * VIEW.zf;
+  if (!VIEW.cam) { VIEW.z = VIEW.zf; VIEW.x = 0; VIEW.vw = CW; }
   const tools = document.getElementById('tools'), bs = Math.round(Math.max(20, 40 * s));
   tools.style.top = Math.round((HUD + 6) * s) + 'px';
   const full = isTouch && portrait; qEl.classList.toggle('full', full);
   qEl.style.top = full ? '0' : Math.round(HUD * s) + 'px';
   qEl.style.fontSize = (full ? Math.max(11, Math.min(14, Math.round(innerWidth / 30))) : Math.max(9, Math.min(14, Math.round(CW * s / 34)))) + 'px'; tools.style.left = Math.round(Math.max(2, 4 * s)) + 'px';
   tools.querySelectorAll('button').forEach(b => { b.style.width = b.style.height = bs + 'px'; b.style.fontSize = Math.round(bs * 0.3) + 'px'; });
-  scale = G.retro ? PIXEL : s * dpr;
+  scale = G.retro ? PIXEL : Math.max(VIEW.zf, VIEW.zc);
   buf.width = Math.ceil(CW * scale); buf.height = Math.ceil(CH * scale);
   buildLayers();
   scan.width = canvas.width; scan.height = canvas.height;
   const sc = scan.getContext('2d'), rh = canvas.height / Math.ceil(CH * PIXEL);
   sc.clearRect(0, 0, scan.width, scan.height); sc.fillStyle = 'rgba(0,0,0,.22)';
   for (let y = 0; y < scan.height; y += rh) sc.fillRect(0, Math.round(y + rh * 0.6), scan.width, Math.max(1, Math.round(rh * 0.4)));
+}
+function updateCam() {
+  if (!VIEW.cam) return;
+  const zoomIn = G.state === 'play' && !G.paused && G.clearT === 0;
+  VIEW.z += ((zoomIn ? VIEW.zc : VIEW.zf) - VIEW.z) * 0.1;
+  const vw = Math.min(CW, canvas.width / VIEW.z), al = players.filter(p => !p.out);
+  const fx = al.length ? al.reduce((a, p) => a + p.x + p.w / 2, 0) / al.length : CW / 2;
+  VIEW.x += (clamp(fx - vw / 2, 0, CW - vw) - VIEW.x) * 0.15;
+  VIEW.x = clamp(VIEW.x, 0, CW - vw); VIEW.vw = vw;
+}
+function blit() {
+  const W = canvas.width, H = canvas.height, sc = scale;
+  mctx.setTransform(1, 0, 0, 1, 0, 0); mctx.imageSmoothingEnabled = !G.retro;
+  if (!VIEW.cam) { mctx.drawImage(buf, 0, 0, W, H); if (G.retro) mctx.drawImage(scan, 0, 0); return; }
+  mctx.fillStyle = '#000'; mctx.fillRect(0, 0, W, H);
+  if (G.state === 'title') { const h = CH * VIEW.zf; VIEW.y0 = (H - h) / 2; mctx.drawImage(buf, 0, VIEW.y0, W, h); return; }
+  mctx.drawImage(buf, 0, 0, buf.width, HUD * sc, 0, 0, W, VIEW.hudH);
+  const gh = GH * VIEW.z, gy = VIEW.hudH + (H - VIEW.hudH - gh) / 2;
+  mctx.drawImage(buf, VIEW.x * sc, HUD * sc, VIEW.vw * sc, GH * sc, 0, gy, W, gh);
 }
 const scan = document.createElement('canvas');
 function setRetro(on) {
@@ -1487,11 +1520,9 @@ function frame(now) {
   acc += Math.min(100, now - last); last = now;
   const STEP = 1000 / 60;
   while (acc >= STEP) { update(); clearPressed(); acc -= STEP; }
+  updateCam();
   render();
-  mctx.setTransform(1, 0, 0, 1, 0, 0);
-  mctx.imageSmoothingEnabled = !G.retro;
-  mctx.drawImage(buf, 0, 0, canvas.width, canvas.height);
-  if (G.retro) mctx.drawImage(scan, 0, 0);
+  blit();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

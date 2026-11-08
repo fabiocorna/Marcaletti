@@ -54,5 +54,5 @@ Altri tasti: **P** pausa · **M** musica on/off · **R** stile pixel/HD (anche c
 - Ogni round dà fino a 3 stelle: completato, in meno di 30 secondi, con una catena da almeno 3.
 - In due, ognuno ha 3 vite e il proprio punteggio; la partita finisce quando entrambi le hanno perse.
 
-Campo compatto (20×17 caselle) per vedere bene i personaggi anche sul telefono. 8 livelli disegnati a mano, poi livelli generati all'infinito con difficoltà crescente.
+Campo compatto (20×17 caselle); sul telefono in verticale la vista si ingrandisce e segue il draghetto. 8 livelli disegnati a mano, poi livelli generati all'infinito con difficoltà crescente.
 Record, stelle e stile grafico vengono salvati nel browser.
