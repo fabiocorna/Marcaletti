@@ -81,7 +81,7 @@ let HI = +store('bubbleBeatsHi') || 0;
 /* =====================================================================
    AUDIO — beat boom-bap generato al volo (Web Audio API)
    ===================================================================== */
-const AU = { ctx: null, on: true, bpm: 90, step: 0, nextT: 0, kicks: [] };
+const AU = { ctx: null, on: true, bpm: 90, step: 0, nextT: 0, kicks: [], key: 0, groove: 0.75, phrase: new Array(32).fill(null) };
 const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 // progressione in La minore: Am9 – Fmaj9 – Dm9 – E7#9
 const CHORDS = [
@@ -102,7 +102,10 @@ function ensureAudio() {
   comp.threshold.value = -16; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
   AU.master = c.createGain(); AU.master.gain.value = 0.85;
   AU.master.connect(comp); comp.connect(c.destination);
-  AU.music = c.createGain(); AU.music.gain.value = AU.on ? 0.6 : 0; AU.music.connect(AU.master);
+  AU.music = c.createGain(); AU.music.gain.value = AU.on ? 0.6 : 0;
+  // filtro che si apre con il groove: fermo = musica ovattata, in azione = piena
+  AU.mlp = c.createBiquadFilter(); AU.mlp.type = 'lowpass'; AU.mlp.frequency.value = 6000; AU.mlp.Q.value = 0.7;
+  AU.music.connect(AU.mlp); AU.mlp.connect(AU.master);
   AU.sfx = c.createGain(); AU.sfx.gain.value = 0.45; AU.sfx.connect(AU.master);
   // bus delle tastiere con un po' di eco
   AU.keys = c.createGain(); AU.keys.gain.value = 0.9;
@@ -209,30 +212,76 @@ function scratch(t, sp) {
     s.connect(f); f.connect(g); g.connect(AU.music);
   }
 }
+// La musica si compone giocando: il "groove" (0..1) decide quali strumenti suonano
+// e quanto si apre il filtro; le note sparate dal giocatore tornano in eco nel loop.
 function playStep(step, t, sp) {
-  const bar = Math.floor(step / 16) % 8, s = step % 16, ch = CHORDS[bar % 4];
+  const bar = Math.floor(step / 16) % 8, s = step % 16, ch = CHORDS[bar % 4], k = AU.key, g = AU.groove;
+  if (s === 0) AU.mlp.frequency.setTargetAtTime(Math.min(18000, 800 * Math.pow(2, g * 4.5)), t, 0.35);
   // batteria
   if (KICK[s] || (bar % 4 === 3 && s === 14)) kick(t);
-  if (s === 4 || s === 12) snare(t);
-  if (s === 15 && bar % 2 === 1) snare(t, 0.22);
+  if (s === 4 || s === 12) { snare(t, g < 0.2 ? 0.6 : 1); if (g >= 0.45) clap(t); }
+  if (s === 15 && bar % 2 === 1 && g >= 0.2) snare(t, 0.22);
   if (s % 2 === 0) hat(t, s % 4 === 0 ? 0.55 : 0.35);
-  else if ((bar * 3 + s) % 7 === 0) hat(t, 0.18);
-  if (s === 14 && bar % 2 === 0) hat(t, 0.3, true);
-  // basso
-  if (s === 0) bass(t, ch.bass, sp * 5);
-  if (s === 7) bass(t, ch.bass, sp * 2);
-  if (s === 10) bass(t, ch.bass + 12, sp * 2.5);
-  if (s === 14) bass(t, ch.bass + 7, sp * 1.5);
-  // tastiere (Rhodes lo-fi)
-  if (s === 0) ch.keys.forEach((m, i) => keyNote(t + i * 0.012, m, sp * 15, 1));
-  if (s === 10) ch.keys.slice(1, 4).forEach(m => keyNote(t, m + 12, sp * 4, 0.5));
-  // melodia nelle battute 4-7
-  if (bar >= 4) {
-    const pos = ((bar - 4) % 2) * 16 + s;
-    for (const [p, m, l] of MELODY) if (p === pos) lead(t, m, sp * l * 0.95);
+  else if (g >= 0.45) hat(t, s % 4 === 3 ? 0.26 : 0.16);
+  if (s === 14 && bar % 2 === 0 && g >= 0.45) hat(t, 0.3, true);
+  // basso: entra quando il groove sale
+  if (g >= 0.2) {
+    if (s === 0) bass(t, ch.bass + k, sp * 5);
+    if (s === 7) bass(t, ch.bass + k, sp * 2);
+    if (s === 10) bass(t, ch.bass + k + 12, sp * 2.5);
+    if (s === 14 && g >= 0.45) bass(t, ch.bass + k + 7, sp * 1.5);
   }
-  if (bar === 7 && s === 12) scratch(t, sp);
+  // tastiere (Rhodes lo-fi)
+  if (s === 0) ch.keys.forEach((m, i) => keyNote(t + i * 0.012, m + k, sp * 15, 1));
+  if (s === 10 && g >= 0.45) ch.keys.slice(1, 4).forEach(m => keyNote(t, m + k + 12, sp * 4, 0.5));
+  // melodia
+  if (g >= 0.7) { const pos = (bar % 2) * 16 + s; for (const [p, m, l] of MELODY) if (p === pos) lead(t, m + k, sp * l * 0.95); }
+  // il riff suonato dal giocatore torna in eco, sempre più piano
+  const ph = AU.phrase[step % 32];
+  if (ph && step > ph.from) { pluck(t, ph.m, 0.55 * ph.life / 4, ph.bright); if (--ph.life <= 0) AU.phrase[step % 32] = null; }
+  if ((g >= 0.9 && bar % 4 === 3 && s === 12) || (bar === 7 && s === 12 && g >= 0.7)) scratch(t, sp);
 }
+function clap(t) {
+  const c = AU.ctx;
+  for (let i = 0; i < 3; i++) {
+    const tt = t + i * 0.011, s = noiseSrc(tt, 0.14), f = c.createBiquadFilter(), g = c.createGain();
+    f.type = 'bandpass'; f.frequency.value = 1300; f.Q.value = 1.1; env(g, tt, 0.001, i === 2 ? 0.45 : 0.28, i === 2 ? 0.12 : 0.02);
+    s.connect(f); f.connect(g); g.connect(AU.music);
+  }
+}
+function pluck(t, m, v = 0.5, bright = false) {
+  const c = AU.ctx, o = c.createOscillator(), o2 = c.createOscillator(), g = c.createGain(), g2 = c.createGain(), f = c.createBiquadFilter();
+  o.type = bright ? 'square' : 'triangle'; o.frequency.value = mtof(m); o2.type = 'sine'; o2.frequency.value = mtof(m) * 2;
+  f.type = 'lowpass'; f.frequency.setValueAtTime(bright ? 3500 : 2600, t); f.frequency.exponentialRampToValueAtTime(380, t + 0.3);
+  env(g, t, 0.003, 0.2 * v, 0.38); g2.gain.value = 0.35;
+  o.connect(f); o2.connect(g2); g2.connect(f); f.connect(g); g.connect(AU.keys);
+  o.start(t); o2.start(t); o.stop(t + 0.45); o2.stop(t + 0.45);
+}
+function conga(t, v = 0.3) {
+  const c = AU.ctx, o = c.createOscillator(), g = c.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(340, t); o.frequency.exponentialRampToValueAtTime(220, t + 0.08);
+  env(g, t, 0.002, v, 0.15); o.connect(g); g.connect(AU.music); o.start(t); o.stop(t + 0.2);
+}
+// quantizzazione: il prossimo sedicesimo della griglia ritmica
+function quant() {
+  const c = AU.ctx; if (!c || c.state !== 'running') return null;
+  const sp = 60 / AU.bpm / 4, kq = Math.ceil((c.currentTime + 0.02 - AU.nextT) / sp), step = AU.step + kq;
+  return { t: AU.nextT + kq * sp + (step % 2 === 1 ? sp * 0.2 : 0), step };
+}
+const NOTE_IT = ['DO', 'DO#', 'RE', 'RE#', 'MI', 'FA', 'FA#', 'SOL', 'SOL#', 'LA', 'LA#', 'SI'];
+const PENTA = [0, 3, 5, 7, 10]; // scala pentatonica minore
+const scaleNote = i => 57 + AU.key + Math.floor(i / 5) * 12 + PENTA[((i % 5) + 5) % 5];
+function playerNote(i, bright) {
+  const m = scaleNote(i), q = quant();
+  if (q) { pluck(q.t, m, 0.9, bright); AU.phrase[q.step % 32] = { m, life: 4, from: q.step, bright }; }
+  return m;
+}
+function chainNote(n) {
+  const q = quant(); if (!q) return;
+  pluck(q.t, scaleNote(4 + n * 2), 1, true);
+  if (n >= 3) pluck(q.t, scaleNote(9 + n * 2), 0.6, true);
+}
+function jumpPerc() { const q = quant(); if (q) conga(q.t, 0.2 + AU.groove * 0.2); }
 function beatPulse() {
   if (!AU.ctx) return 0.5 + 0.5 * Math.sin(performance.now() / 333 * Math.PI);
   const now = AU.ctx.currentTime; let last = -9;
@@ -254,7 +303,8 @@ function nz(dur, vol, freq, type = 'highpass') {
   s.connect(f); f.connect(g); g.connect(AU.sfx);
 }
 const SFX = {
-  shoot() { tone('sine', 320, 880, 0.1, 0.35); tone('triangle', 160, 420, 0.08, 0.2); },
+  shoot() { tone('sine', 300, 700, 0.07, 0.14); },
+  level() { tone('sawtooth', 200, 1600, 0.35, 0.05); nz(0.35, 0.07, 3000); },
   pop() { tone('sine', 1100, 180, 0.09, 0.35); nz(0.05, 0.2, 2500); },
   jump() { tone('square', 240, 560, 0.11, 0.08); },
   bounce() { tone('sine', 300, 700, 0.12, 0.25); },
@@ -317,6 +367,11 @@ canvas.addEventListener('pointerdown', e => {
   if (G.state === 'title') {
     const r = canvas.getBoundingClientRect(), y = (e.clientY - r.top) / r.height * CH;
     if (y > 330 && y < 362) G.sel = 0; else if (y >= 362 && y < 396) G.sel = 1;
+  }
+  if (G.state === 'quiz' && G.quiz && !G.quiz.done) {
+    const r = canvas.getBoundingClientRect(), y = (e.clientY - r.top) / r.height * CH;
+    for (let i = 0; i < 3; i++) if (Math.abs(y - (QY + i * QDY)) < 30) G.tapSel = i;
+    return;
   }
   sys.start = true;
 });
@@ -393,7 +448,9 @@ const getLevel = n => n < LEVELS.length ? LEVELS[n] : genLevel(n);
    STATO DI GIOCO
    ===================================================================== */
 const G = { state: 'title', level: 0, t: 0, levelT: 0, introT: 0, clearT: 0, overT: 0, sel: 0, nPlayers: 1,
-  shake: 0, hurry: false, specialT: 0, paused: false, banner: null, retro: store('bubbleBeatsRetro') !== '0' };
+  shake: 0, hurry: false, specialT: 0, paused: false, banner: null, retro: store('bubbleBeatsRetro') !== '0',
+  groove: 0.2, lastLv: 0, hitstop: 0, bestChain: 0, quizStreak: 0, quiz: null, toast: null, result: null,
+  keyName: 'LA MINORE', tip: '', edges: [], tapSel: null, overFact: '' };
 let grid = [], players = [], enemies = [], bubbles = [], items = [], shots = [], parts = [], popups = [], waves = [], pending = [];
 let theme = { hue: 265 };
 let bgLayer = null, tileLayer = null;
@@ -464,12 +521,15 @@ function startLevel(n) {
   for (const p of players) if (!p.out) spawnPlayer(p, 60);
   G.state = 'intro'; G.introT = 120; G.levelT = 0; G.clearT = 0; G.hurry = false; G.banner = null;
   G.specialT = 60 * rnd(10, 16); setBpm(90);
+  const K = KEYS[n % KEYS.length]; AU.key = K[0]; G.keyName = K[1]; AU.phrase.fill(null);
+  G.bestChain = 0; G.result = null; G.groove = Math.max(0.15, G.groove * 0.6); G.lastLv = grooveLv(); AU.groove = G.groove;
+  G.tip = TIPS[n % TIPS.length];
 }
 function newGame(n) {
   G.nPlayers = n;
   players = [];
   for (let i = 0; i < n; i++) players.push({ i, score: 0, lives: 3, out: false });
-  SFX.start(); startLevel(0);
+  G.groove = 0.15; G.quizStreak = 0; SFX.start(); startLevel(0);
 }
 function addScore(p, pts, x, y, col = '#ffd23f') {
   if (p) { p.score += pts; if (p.score > HI) HI = p.score; }
@@ -485,11 +545,112 @@ function burst(x, y, col, n = 10, spd = 3) {
 /* =====================================================================
    AGGIORNAMENTO
    ===================================================================== */
+// ---------- groove: la "febbre" del ritmo, sale giocando bene e scende da fermi ----------
+const GROOVE_LV = [
+  { n: 'LO-FI', add: '', col: '#7a7aa8' },
+  { n: 'CHILL', add: '+ BASSO', col: '#3fa9ff' },
+  { n: 'GROOVE', add: '+ CLAP E CHARLESTON', col: '#38e07b' },
+  { n: 'FLOW', add: '+ MELODIA', col: '#ffd23f' },
+  { n: 'FUOCO!', add: '+ SCRATCH DEL DJ', col: '#ff3d6e' },
+];
+const grooveLv = () => G.groove >= 0.9 ? 4 : G.groove >= 0.7 ? 3 : G.groove >= 0.45 ? 2 : G.groove >= 0.2 ? 1 : 0;
+const gmult = () => grooveLv() + 1;
+function groove(v) { G.groove = Math.min(1, G.groove + v); }
+const COMBO = ['', '', 'DOPPIA!', 'TRIPLA!', 'SUPER!', 'MEGA!', 'LEGGENDARIA!'];
+// tonalità: ogni round trasporta il beat (semitoni rispetto a LA minore)
+const KEYS = [[0, 'LA MINORE'], [3, 'DO MINORE'], [-4, 'FA MINORE'], [5, 'RE MINORE'], [-5, 'MI MINORE'], [-2, 'SOL MINORE'], [2, 'SI MINORE'], [-3, 'FA# MINORE']];
+const TIPS = [
+  'Ogni bolla suona una nota: più spari in alto, più la nota è acuta!',
+  'Tieni alto il GROOVE: entrano nuovi strumenti e i punti si moltiplicano.',
+  'Stai suonando la scala pentatonica: 5 note che stanno sempre bene insieme.',
+  'Le bolle che si toccano scoppiano a catena: ogni nemico in più raddoppia.',
+  'Tieni premuto SALTA atterrando su una bolla per rimbalzare più in alto.',
+  'Il beat si ripete ogni 2 battute: le note che spari tornano come eco.',
+  'Una battuta in 4/4 ha 4 tempi; qui ogni tempo è diviso in 4 sedicesimi.',
+  'Ogni round cambia tonalità: stessa melodia, ma più acuta o più grave.',
+];
+// stelle per round (salvate nel browser)
+const STARS = (() => { try { return JSON.parse(store('bubbleBeatsStars') || '{}') || {}; } catch (e) { return {}; } })();
+const totalStars = () => Object.values(STARS).reduce((a, b) => a + b, 0);
+function roundClear() {
+  SFX.clear(); G.banner = null;
+  const fast = G.levelT < 60 * 30, chain3 = G.bestChain >= 3, stars = 1 + fast + chain3, key = 'r' + G.level, prev = STARS[key];
+  if (!(prev >= stars)) { STARS[key] = stars; store('bubbleBeatsStars', JSON.stringify(STARS)); }
+  G.result = { stars, fast, chain3, best: prev !== undefined && stars > prev, time: (G.levelT / 60).toFixed(1), chain: G.bestChain };
+}
+// ---------- SFIDA DEL SAPERE: una domanda ogni 2 round ----------
+// a[0] è sempre la risposta giusta (l'ordine viene mescolato a video)
+const QUIZ = [
+  { c: 'MUSICA', q: 'Quante note ha una scala pentatonica?', a: ['5', '7', '12'], e: 'Penta = cinque. È proprio la scala che suoni quando spari le bolle!' },
+  { c: 'MUSICA', q: 'Cosa misura il BPM di una canzone?', a: ['I battiti al minuto', 'Il volume', 'Quanto è acuta'], e: 'BPM = Beats Per Minute. Questo beat va a 90 BPM, un tempo tipico del boom-bap.' },
+  { c: 'MUSICA', q: 'Quanti semitoni ci sono in un\'ottava?', a: ['12', '8', '7'], e: 'Salendo di un\'ottava la frequenza raddoppia: il LA a 440 Hz diventa 880 Hz.' },
+  { c: 'MUSICA', q: 'A che frequenza si accorda il LA di riferimento?', a: ['440 Hz', '100 Hz', '1000 Hz'], e: 'Il LA a 440 Hz è lo standard internazionale per accordare gli strumenti.' },
+  { c: 'MUSICA', q: 'Quanti semitoni ci sono tra LA e DO (terza minore)?', a: ['3', '4', '7'], e: 'La terza minore ha 3 semitoni, la maggiore 4: è ciò che rende un accordo triste o allegro.' },
+  { c: 'MUSICA', q: 'Lo schema di rime AABB si chiama rima...', a: ['Baciata', 'Alternata', 'Incrociata'], e: 'Baciata AABB, alternata ABAB, incrociata ABBA: i rapper le usano tutte.' },
+  { c: 'MUSICA', q: 'Qual è il tempo più usato nell\'hip hop?', a: ['4/4', '3/4', '7/8'], e: 'Quattro quarti: il rullante cade sul 2 e sul 4, la cassa riempie il resto.' },
+  { c: 'MUSICA', q: 'Quale strumento usa un DJ per fare gli scratch?', a: ['Il giradischi', 'Il sintetizzatore', 'La batteria'], e: 'Muovendo il disco avanti e indietro sotto la puntina nasce il tipico suono "wiki-wiki".' },
+  { c: 'HIP HOP', q: 'In quale quartiere di New York è nato l\'hip hop?', a: ['Bronx', 'Manhattan', 'Brooklyn'], e: 'Agosto 1973: festa di DJ Kool Herc al 1520 di Sedgwick Avenue, nel Bronx.' },
+  { c: 'HIP HOP', q: 'Che cos\'è un "breakbeat"?', a: ['La parte di un brano con solo la batteria', 'Un passo di danza', 'Un tipo di microfono'], e: 'Kool Herc allungava i break usando due copie dello stesso disco su due giradischi.' },
+  { c: 'HIP HOP', q: 'Quale NON è uno dei quattro elementi classici dell\'hip hop?', a: ['Skateboard', 'Graffiti', 'Breaking'], e: 'I quattro elementi: rap (MCing), DJing, breaking e graffiti writing.' },
+  { c: 'HIP HOP', q: 'Chi è indicato come l\'inventore dello scratch?', a: ['Grand Wizzard Theodore', 'Eminem', 'Run-DMC'], e: 'Grand Wizzard Theodore, da ragazzino nel Bronx, a metà degli anni \'70.' },
+  { c: 'HIP HOP', q: 'Quale marca produceva la famosa drum machine 808?', a: ['Roland', 'Yamaha', 'Casio'], e: 'La Roland TR-808 (1980): la sua cassa profonda è il suono della bolla dorata!' },
+  { c: 'HIP HOP', q: 'Nel rap, cosa vuol dire "freestyle"?', a: ['Improvvisare rime al momento', 'Ballare senza musica', 'Rappare solo in inglese'], e: 'Nel freestyle le rime nascono sul momento, spesso in sfide tra MC.' },
+  { c: 'LINGUA', q: 'Da quale lingua viene la parola "graffiti"?', a: ['Italiano', 'Inglese', 'Giapponese'], e: 'Da "graffito" (graffiare): gli archeologi la usavano per le scritte sui muri di Pompei.' },
+  { c: 'SCIENZA', q: 'Perché le bolle di sapone sono rotonde?', a: ['La sfera ha meno superficie a parità di volume', 'Per colpa del vento', 'Perché il sapone è rotondo'], e: 'La tensione superficiale "tira" la pellicola verso la forma più compatta: la sfera.' },
+  { c: 'SCIENZA', q: 'Da cosa nascono i colori arcobaleno sulle bolle?', a: ['Dall\'interferenza della luce', 'Da un colorante', 'Dal riflesso del cielo'], e: 'La luce riflessa dalle due facce della pellicola si somma o si annulla a seconda dello spessore.' },
+  { c: 'SCIENZA', q: 'La pellicola di una bolla è fatta soprattutto di...', a: ['Acqua', 'Sapone', 'Olio'], e: 'È acqua tra due strati di sapone: quando l\'acqua evapora, la bolla scoppia.' },
+  { c: 'SCIENZA', q: 'A che velocità viaggia il suono nell\'aria?', a: ['Circa 343 m/s', 'Circa 3 m/s', '300.000 km/s'], e: 'Circa 343 metri al secondo a 20 °C. 300.000 km/s è la velocità della luce!' },
+  { c: 'SCIENZA', q: 'Nel vuoto dello spazio il suono...', a: ['Non si propaga', 'Va più veloce', 'Diventa più acuto'], e: 'Il suono è una vibrazione e ha bisogno di un mezzo: aria, acqua o solidi.' },
+  { c: 'SCIENZA', q: 'Che suoni sente l\'orecchio umano, all\'incirca?', a: ['Da 20 a 20.000 Hz', 'Da 2 a 200 Hz', 'Fino a 2 milioni di Hz'], e: 'Con l\'età la soglia alta si abbassa; i cani sentono suoni ben più acuti di noi.' },
+  { c: 'SCIENZA', q: 'Qual è la formula chimica dell\'acqua?', a: ['H2O', 'CO2', 'O2'], e: 'Due atomi di idrogeno e uno di ossigeno. CO2 è l\'anidride carbonica.' },
+  { c: 'CORPO', q: 'Quante ossa ha il corpo di un adulto?', a: ['206', '106', '306'], e: 'Un neonato ne ha di più (circa 300): crescendo alcune si saldano tra loro.' },
+  { c: 'NATURA', q: 'Che animale è il "drago di Komodo"?', a: ['Una grande lucertola', 'Un serpente', 'Un dinosauro'], e: 'È un varano che vive in Indonesia e può arrivare a 3 metri di lunghezza.' },
+  { c: 'NATURA', q: 'Quale mammifero sa volare davvero?', a: ['Il pipistrello', 'Lo scoiattolo volante', 'Il pesce volante'], e: 'I pipistrelli sono gli unici mammiferi con volo attivo; gli scoiattoli volanti planano.' },
+  { c: 'NATURA', q: 'Come indicano le api dove sono i fiori?', a: ['Con una danza', 'Con un canto', 'Cambiando colore'], e: 'La "danza dell\'addome" indica direzione e distanza. La scoprì Karl von Frisch.' },
+  { c: 'NATURA', q: 'Fino a che velocità batte il cuore di un colibrì in volo?', a: ['Oltre 1000 battiti/min', 'Circa 60 battiti/min', 'Circa 10 battiti/min'], e: 'Oltre mille battiti al minuto: altro che 90 BPM!' },
+  { c: 'SPAZIO', q: 'Qual è il pianeta più grande del Sistema Solare?', a: ['Giove', 'Saturno', 'La Terra'], e: 'Dentro Giove ci starebbero più di 1.300 pianeti come la Terra.' },
+  { c: 'SPAZIO', q: 'Quanto impiega la luce del Sole ad arrivare a noi?', a: ['Circa 8 minuti', 'Circa 8 secondi', 'Circa 8 ore'], e: 'Circa 8 minuti e 20 secondi per percorrere 150 milioni di chilometri.' },
+  { c: 'SPAZIO', q: 'Quanti pianeti ha il Sistema Solare?', a: ['8', '9', '12'], e: 'Dal 2006 Plutone è classificato come pianeta nano.' },
+  { c: 'SPAZIO', q: 'Cosa tiene la Luna in orbita intorno alla Terra?', a: ['La gravità', 'Il magnetismo', 'Il vento solare'], e: 'La stessa forza che fa cadere le cose a terra tiene la Luna in orbita.' },
+  { c: 'STORIA', q: 'In che anno l\'uomo è sbarcato sulla Luna?', a: ['1969', '1959', '1979'], e: '20 luglio 1969, missione Apollo 11: Neil Armstrong e Buzz Aldrin.' },
+  { c: 'STORIA', q: 'Chi inventò il fonografo, antenato del giradischi?', a: ['Thomas Edison', 'Guglielmo Marconi', 'Leonardo da Vinci'], e: 'Edison, nel 1877. Il disco piatto arrivò con il grammofono di Emile Berliner.' },
+  { c: 'STORIA', q: 'Su un vinile LP, cosa indica "33 giri"?', a: ['I giri al minuto', 'I minuti di musica', 'Il numero di canzoni'], e: 'Un LP gira a 33 giri e un terzo al minuto; i singoli spesso a 45.' },
+  { c: 'GEOGRAFIA', q: 'Qual è il fiume più lungo d\'Italia?', a: ['Il Po', 'Il Tevere', 'L\'Arno'], e: 'Il Po è lungo circa 650 km e attraversa tutta la Pianura Padana.' },
+  { c: 'GEOGRAFIA', q: 'Qual è la capitale dell\'Australia?', a: ['Canberra', 'Sydney', 'Melbourne'], e: 'Canberra fu costruita apposta come capitale, a metà strada tra Sydney e Melbourne.' },
+  { c: 'MATEMATICA', q: 'Un beat a 90 BPM: quanti battiti in 2 minuti?', a: ['180', '90', '45'], e: '90 battiti al minuto × 2 minuti = 180 battiti.' },
+  { c: 'MATEMATICA', q: 'Catena da 4: 1000 + 2000 + 4000 + 8000 punti. Totale?', a: ['15.000', '16.000', '10.000'], e: 'Ogni termine raddoppia: la somma è sempre il doppio dell\'ultimo meno il primo.' },
+  { c: 'MATEMATICA', q: 'Se raddoppi 1 per dieci volte, cosa ottieni?', a: ['1024', '100', '20'], e: '2 alla decima = 1024: la crescita esponenziale è velocissima, come le catene!' },
+  { c: 'MATEMATICA', q: 'Quanto fa 12 × 12?', a: ['144', '124', '142'], e: '12 × 12 = 144, detto anche una "grossa" nel commercio di una volta.' },
+];
+let quizDeck = [];
+function startQuiz() {
+  if (!quizDeck.length) quizDeck = QUIZ.map((_, i) => i).sort(() => Math.random() - 0.5);
+  const Q = QUIZ[quizDeck.pop()], order = [0, 1, 2].sort(() => Math.random() - 0.5);
+  G.quiz = { Q, opts: order.map(i => Q.a[i]), right: order.indexOf(0), sel: 0, done: false, t: 0 };
+  G.state = 'quiz'; G.tapSel = null; SFX.start();
+}
+function updateQuiz() {
+  const z = G.quiz; z.t++;
+  let mv = 0, ok = sys.start;
+  for (const n in SRC) { const q = SRC[n].p; if (q.left) mv--; if (q.right) mv++; if (q.shoot || q.jump) ok = true; }
+  if (G.tapSel !== null) { z.sel = G.tapSel; G.tapSel = null; ok = true; }
+  if (!z.done) {
+    if (mv) { z.sel = (z.sel + mv + 3) % 3; tone('square', 520, 520, 0.04, 0.08); }
+    if (ok && z.t > 20) {
+      z.done = true; z.t = 0; z.win = z.sel === z.right;
+      if (z.win) {
+        G.quizStreak++; z.life = G.quizStreak % 3 === 0; groove(0.3); SFX.clear();
+        for (const p of players) if (!p.out) { p.score += 5000; if (z.life) p.lives = Math.min(9, p.lives + 1); HI = Math.max(HI, p.score); }
+      } else { G.quizStreak = 0; SFX.die(); }
+    }
+  } else if (ok && z.t > 40) { G.quiz = null; startLevel(G.level + 1); }
+}
 function update() {
   G.t++;
   pollPads();
   if (G.shake > 0) G.shake *= 0.85;
   if (G.state === 'title') {
+    AU.groove = 0.75;
     if (sys.start) newGame(G.sel + 1);
     return;
   }
@@ -500,13 +661,20 @@ function update() {
   }
   if (sys.pause) G.paused = !G.paused;
   if (G.paused) { if (sys.start) G.paused = false; return; }
+  if (G.state === 'quiz') { updateQuiz(); return; }
   if (G.state === 'intro') {
     G.introT--; updateParticles();
     if (G.introT <= 0) G.state = 'play';
     return;
   }
   // --- play ---
+  if (G.hitstop > 0) { G.hitstop--; updateParticles(); return; }
   G.levelT++;
+  G.groove = Math.max(0, G.groove - 0.0008); AU.groove = G.groove;
+  const lv = grooveLv();
+  if (lv > G.lastLv) { G.toast = { text: GROOVE_LV[lv].add, t: 0, col: GROOVE_LV[lv].col }; SFX.level(); }
+  G.lastLv = lv;
+  if (G.toast && ++G.toast.t > 150) G.toast = null;
   if (!G.hurry && G.levelT > 60 * 45 && enemies.length) {
     G.hurry = true; enemies.forEach(e => e.angry = true);
     G.banner = { text: 'SBRIGATI!', t: 0, col: '#ff3d6e' }; SFX.hurry(); setBpm(100);
@@ -518,7 +686,7 @@ function update() {
   }
   for (const p of players) updatePlayer(p);
   if (players.every(p => p.out)) {
-    G.state = 'over'; G.overT = 0;
+    G.state = 'over'; G.overT = 0; G.overFact = QUIZ[Math.floor(rnd(QUIZ.length))].e;
     const best = Math.max(...players.map(p => p.score)); if (best >= HI) { HI = best; store('bubbleBeatsHi', HI); }
     return;
   }
@@ -532,8 +700,10 @@ function update() {
   updateParticles();
   if (G.banner && ++G.banner.t > 120) G.banner = null;
   if (enemies.length === 0) {
-    if (G.clearT === 0) { SFX.clear(); G.banner = { text: 'ROUND COMPLETATO!', t: 0, col: '#38e07b' }; }
-    if (++G.clearT > 190) startLevel(G.level + 1);
+    if (G.clearT === 0) roundClear();
+    G.clearT++;
+    for (let i = 0; i < G.result.stars; i++) if (G.clearT === 40 + i * 22) tone('triangle', 880 * Math.pow(1.26, i), 1760 * Math.pow(1.26, i), 0.2, 0.2);
+    if (G.clearT > 250) { if ((G.level + 1) % 2 === 0) startQuiz(); else startLevel(G.level + 1); }
   }
 }
 function updatePlayer(p) {
@@ -547,13 +717,19 @@ function updatePlayer(p) {
   const mv = (k.left ? -1 : 0) + (k.right ? 1 : 0);
   p.vx = mv * PSPD; if (mv) p.face = mv;
   p.x += p.vx; clampX(p);
-  if (k.jumpP && p.onGround) { p.vy = -JUMP; SFX.jump(); }
+  if (k.jumpP && p.onGround) { p.vy = -JUMP; SFX.jump(); jumpPerc(); groove(0.004); p.sq = -1; }
   p.vy = Math.min(p.vy + GRAV, MAXF);
+  const wasG = p.onGround;
   moveVert(p);
+  if (!wasG && p.onGround) { p.sq = 0.9; burst(p.x + p.w / 2, p.y + p.h, 'rgba(255,255,255,.7)', 5, 1.2); }
+  p.sq = (p.sq || 0) * 0.8;
   p.holdJump = k.jump;
   if (p.shootCD > 0) p.shootCD--;
   if ((k.shoot || k.shootP) && p.shootCD <= 0) {
-    p.shootCD = 16; p.mouth = 10; SFX.shoot();
+    p.shootCD = 16; p.mouth = 10; SFX.shoot(); groove(0.012);
+    // la nota dipende dall'altezza: più in alto = più acuta
+    const ni = clamp(Math.floor(((ROWS - 1) * T - (p.y + p.h)) / (T * 2.2)), 0, 9), m = playerNote(ni, p.i === 1);
+    popups.push({ x: p.x + p.w / 2, y: p.y - 8, text: NOTE_IT[m % 12], t: 20, col: hsl((m % 12) * 30, 90, 72) });
     const b = { x: p.x + p.w / 2 + p.face * 12, y: p.y + 11, r: 14, vx: p.face * 7.5, vy: 0, phase: 'shot', t: 0,
       life: 420, enemy: null, special: null, wob: rnd(6), squash: 0, owner: p };
     b.x = clamp(b.x, LEFT + b.r, RIGHT - b.r);
@@ -565,7 +741,7 @@ function updatePlayer(p) {
 }
 function killPlayer(p) {
   if (p.dead || p.out || p.inv > 0) return;
-  p.dead = true; p.deadT = 0; p.vy = -7; p.rot = 0; p.lives--; G.shake = 10;
+  p.dead = true; p.deadT = 0; p.vy = -7; p.rot = 0; p.lives--; G.shake = 10; G.groove *= 0.35;
   SFX.die(); burst(p.x + p.w / 2, p.y + p.h / 2, PAL[p.i].body, 18, 4);
 }
 const canHit = e => !e.dead && !e.trapped && e.spawn <= 0;
@@ -607,7 +783,7 @@ function updateBubbles() {
     for (const p of players) {
       if (!alive(p) || b.popped || b.t <= 10 || !circleRect(b, p)) continue;
       if (p.vy > 0 && p.y + p.h < b.y + 2 && p.holdJump) {
-        p.vy = -9.4; b.vy += 1.4; b.squash = 1; SFX.bounce();
+        p.vy = -9.4; b.vy += 1.4; b.squash = 1; SFX.bounce(); groove(0.03); p.sq = -0.8;
       } else popBubble(b, { n: 0, pl: p });
     }
   }
@@ -626,7 +802,7 @@ function updateBubbles() {
 }
 function popBubble(b, chain) {
   if (b.popped) return;
-  b.popped = true; if (chain.pl) chain.pl.score += 10;
+  b.popped = true; if (chain.pl) { chain.pl.score += 10; groove(0.02); }
   SFX.pop(); burst(b.x, b.y, b.special ? '#ffd23f' : '#aef', 10, 3);
   parts.push({ ring: true, x: b.x, y: b.y, r: b.r, life: 14, max: 14, col: b.special ? '#ffd23f' : '#cff' });
   if (b.enemy) { killEnemy(b.enemy, chain); b.enemy = null; }
@@ -640,11 +816,12 @@ function popBubble(b, chain) {
 function killEnemy(e, chain) {
   if (e.dead) return;
   e.dead = true; e.trapped = false; e.deadT = 0; e.vx = rnd(-4, 4); e.vy = -8; e.rot = 0;
-  chain.n++;
-  const pts = Math.min(1000 * Math.pow(2, chain.n - 1), 64000);
+  chain.n++; G.bestChain = Math.max(G.bestChain, chain.n);
+  const pts = Math.min(1000 * Math.pow(2, chain.n - 1), 64000) * gmult();
   addScore(chain.pl, pts, e.x + e.w / 2, e.y, chain.n > 1 ? '#ff3d6e' : '#ffd23f');
-  burst(e.x + e.w / 2, e.y + e.h / 2, '#fff', 12, 4);
-  G.shake = Math.max(G.shake, 5); SFX.kill(chain.n);
+  if (chain.n >= 2) popups.push({ x: clamp(e.x + e.w / 2, 150, GW - 150), y: e.y - 24, text: COMBO[Math.min(chain.n, COMBO.length - 1)], t: 0, col: '#fff275', big: true });
+  burst(e.x + e.w / 2, e.y + e.h / 2, '#fff', 12, 4); burst(e.x + e.w / 2, e.y + e.h / 2, hsl(G.t * 7, 100, 65), 10, 5);
+  G.shake = Math.max(G.shake, 5); G.hitstop = 3; groove(0.12); chainNote(chain.n); tone('square', 660, 990, 0.08, 0.05);
 }
 function updateEnemies() {
   for (const e of enemies) {
@@ -717,7 +894,7 @@ function updateItems() {
   for (const it of items) {
     it.t++; it.vy = Math.min(it.vy + GRAV, MAXF); moveVert(it);
     for (const p of players) if (!it.gone && alive(p) && overlap(it, p)) {
-      it.gone = true; addScore(p, it.pts, it.x + 11, it.y, '#7df9ff'); SFX.item(); burst(it.x + 11, it.y + 11, '#ffd23f', 8, 2.5);
+      it.gone = true; addScore(p, it.pts * gmult(), it.x + 11, it.y, '#7df9ff'); groove(0.05); SFX.item(); burst(it.x + 11, it.y + 11, '#ffd23f', 8, 2.5);
     }
     if (--it.life <= 0) it.gone = true;
   }
@@ -800,6 +977,15 @@ function buildLayers() {
     t.fillRect(x + ((r % 2) ? 4 : 16), y, 2, T / 2); t.fillRect(x + ((r % 2) ? 16 : 4), y + T / 2, 2, T / 2);
     if (!solidAt(c, r - 1) && r > 0) { t.fillStyle = hsl(base - 10, 100, 86); t.fillRect(x, y, T, 2); }
   }
+  // bordi superiori delle piattaforme (per il neon a tempo di musica)
+  G.edges = [];
+  for (let r = 1; r < ROWS; r++) {
+    let c = 2;
+    while (c < COLS - 2) {
+      if (grid[r][c] && !grid[r - 1][c]) { const c0 = c; while (c < COLS - 2 && grid[r][c] && !grid[r - 1][c]) c++; G.edges.push([c0 * T, c * T, r * T]); }
+      else c++;
+    }
+  }
   t.save(); t.font = `16px ${FONT}`; t.fillStyle = 'rgba(255,255,255,.6)'; t.textAlign = 'center'; t.textBaseline = 'middle';
   for (const sx of [T, GW - T]) { t.save(); t.translate(sx, GH / 2); t.rotate(-Math.PI / 2); t.fillText('ROUND ' + (G.level + 1), 0, 0); t.restore(); }
   t.restore();
@@ -813,6 +999,7 @@ function drawDragon(c, x, y, face, o = {}, pal = PAL[0]) {
   const t = o.t || 0, walk = o.walk, mouth = o.mouth;
   c.save(); c.translate(x, y);
   if (o.s) c.scale(o.s, o.s);
+  if (o.sq) c.scale(1 + o.sq * 0.18, 1 - o.sq * 0.18);
   if (o.rot) { c.translate(0, -14); c.rotate(o.rot); c.translate(0, 14); }
   c.scale(face, 1);
   const st = walk ? Math.sin(t * 0.35) * 3 : (o.air ? 2 : 0);
@@ -943,6 +1130,11 @@ function drawBubble(c, b, pulse) {
   const col = b.special ? [255, 210, 63] : warn ? [255, 80, 100] : b.enemy ? [120, 230, 255] : [110, 255, 230];
   const [r, g, bl] = col;
   c.save(); c.translate(b.x, b.y);
+  c.globalCompositeOperation = 'lighter';
+  const halo = c.createRadialGradient(0, 0, b.r * 0.6, 0, 0, b.r * 1.9);
+  halo.addColorStop(0, `rgba(${r},${g},${bl},.22)`); halo.addColorStop(1, `rgba(${r},${g},${bl},0)`);
+  c.fillStyle = halo; circ(c, 0, 0, b.r * 1.9);
+  c.globalCompositeOperation = 'source-over';
   const gr = c.createRadialGradient(-b.r * 0.35, -b.r * 0.35, 1, 0, 0, b.r + 2);
   gr.addColorStop(0, 'rgba(255,255,255,.4)'); gr.addColorStop(0.55, `rgba(${r},${g},${bl},.12)`); gr.addColorStop(1, `rgba(${r},${g},${bl},.55)`);
   c.fillStyle = gr; ell(c, 0, 0, rx, ry);
@@ -1008,6 +1200,12 @@ function render() {
     for (let yy = 0; yy < hgt; yy += 8) ctx.fillRect(LEFT + i * bw + 3, (ROWS - 1) * T - yy - 6, bw - 6, 6);
   }
   if (tileLayer) ctx.drawImage(tileLayer, 0, 0, GW, GH);
+  // neon sui bordi delle piattaforme, pulsa con la cassa
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.beginPath(); for (const [a, b2, y] of G.edges) { ctx.moveTo(a, y + 1); ctx.lineTo(b2, y + 1); }
+  ctx.strokeStyle = hsl(theme.hue + 150, 100, 60, 0.12 + pulse * 0.3); ctx.lineWidth = 8; ctx.stroke();
+  ctx.strokeStyle = hsl(theme.hue + 150, 100, 82, 0.25 + pulse * 0.5); ctx.lineWidth = 2; ctx.stroke();
+  ctx.globalCompositeOperation = 'source-over';
   for (const it of items) drawItem(ctx, it);
   for (const e of enemies) {
     if (e.trapped) continue;
@@ -1021,7 +1219,7 @@ function render() {
   for (const p of players) {
     if (p.out || (p.inv > 0 && Math.floor(p.inv / 4) % 2)) continue;
     drawDragon(ctx, p.x + p.w / 2, p.y + p.h, p.face, { t: p.anim, walk: p.onGround && p.vx !== 0 && !p.dead, air: !p.onGround,
-      mouth: p.mouth > 0 || p.dead, rot: p.dead ? p.rot : 0, beat: p.onGround && !p.vx ? pulse : 0 }, PAL[p.i]);
+      mouth: p.mouth > 0 || p.dead, rot: p.dead ? p.rot : 0, sq: p.dead ? 0 : p.sq, beat: p.onGround && !p.vx ? pulse : 0 }, PAL[p.i]);
   }
   for (const b of bubbles) drawBubble(ctx, b, pulse);
   for (const s of shots) {
@@ -1040,20 +1238,33 @@ function render() {
     else { ctx.globalAlpha = a; ctx.fillStyle = q.col; const s = q.size * a + 1; ctx.fillRect(q.x - s, q.y - s, s * 2, s * 2); }
   }
   ctx.globalAlpha = 1;
-  for (const pp of popups) { ctx.globalAlpha = 1 - pp.t / 60; text(pp.text, pp.x, pp.y, 16, pp.col); }
+  for (const pp of popups) { ctx.globalAlpha = 1 - pp.t / 60; text(pp.text, pp.x, pp.y, pp.big ? 24 : 16, pp.col); }
   ctx.globalAlpha = 1;
+  const vg = ctx.createRadialGradient(GW / 2, GH / 2, GH * 0.3, GW / 2, GH / 2, GW * 0.72);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(0,0,0,${0.5 - pulse * 0.15})`);
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, GW, GH);
   ctx.restore();
   // sovrapposizioni
   const cy = HUD + GH / 2;
   if (G.state === 'intro') {
-    ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(0, cy - 64, CW, 128);
-    text('ROUND ' + (G.level + 1), CW / 2, cy - 18, 48, '#ffd23f');
-    if (G.introT < 70) text('PRONTI!', CW / 2, cy + 34, 32, '#fff');
+    if (G.introT > 90) { // apertura a cerchio
+      const p = players.find(q => !q.out) || players[0], rad = (120 - G.introT) / 30 * 700;
+      ctx.fillStyle = '#000'; ctx.beginPath(); ctx.rect(0, HUD, CW, GH);
+      ctx.arc(p.x + p.w / 2, HUD + p.y + p.h / 2, Math.max(1, rad), 0, Math.PI * 2, true); ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(0, cy - 90, CW, 180);
+    text('ROUND ' + (G.level + 1), CW / 2, cy - 52, 48, '#ffd23f');
+    text('Tonalità: ' + G.keyName, CW / 2, cy - 4, 16, '#7df9ff');
+    wrapText(G.tip, CW / 2, cy + 40, 680, 16, '#fff1b8', 22, true);
+    if (G.introT < 50) text('PRONTI!', CW / 2, cy + 120, 32, '#fff');
   }
   if (G.banner) {
     const b = G.banner;
     if (Math.floor(b.t / 8) % 2 || b.t > 40) text(b.text, CW / 2, cy - 10, b.text.length > 12 ? 32 : 48, b.col);
   }
+  if (G.state === 'play' || G.state === 'intro') drawGroove(pulse);
+  if (G.clearT > 0 && G.result && G.state !== 'quiz') drawResult();
+  if (G.state === 'quiz') renderQuiz();
   if (G.paused) {
     ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(0, HUD, CW, GH);
     text('PAUSA', CW / 2, cy - 10, 48, '#7df9ff');
@@ -1064,6 +1275,73 @@ function render() {
     text('GAME OVER', CW / 2, cy - 30, 48, '#ff3d6e');
     players.forEach((p, i) => text(`${PAL[i].name} ${pad(p.score)}`, CW / 2, cy + 30 + i * 30, 16, PAL[i].ui));
     if (G.overT > 90 && Math.floor(G.t / 30) % 2) text(isTouch ? 'TOCCA PER CONTINUARE' : 'PREMI INVIO', CW / 2, cy + 110, 16, '#ffd23f');
+    if (G.overFact) wrapText('LO SAPEVI? ' + G.overFact, CW / 2, cy + 200, 680, 16, '#fff1b8', 24, true);
+  }
+}
+function wrapText(str, x, y, maxW, size, col, lh, vc) {
+  ctx.font = `${size}px ${FONT}`;
+  const lines = []; let cur = '';
+  for (const w of str.split(' ')) { const tst = cur ? cur + ' ' + w : w; if (ctx.measureText(tst).width > maxW && cur) { lines.push(cur); cur = w; } else cur = tst; }
+  if (cur) lines.push(cur);
+  const y0 = vc ? y - (lines.length - 1) * lh / 2 : y;
+  lines.forEach((l, i) => text(l, x, y0 + i * lh, size, col));
+  return lines.length;
+}
+function drawGroove(pulse) {
+  const lv = grooveLv(), L = GROOVE_LV[lv], w = 300, h = 22, x = CW / 2 - w / 2, y = HUD + 2;
+  ctx.fillStyle = 'rgba(0,0,0,.8)'; rr(ctx, x - 3, y - 2, w + 6, h + 5, 8);
+  ctx.fillStyle = 'rgba(255,255,255,.08)'; rr(ctx, x, y, w, h, 6);
+  ctx.globalAlpha = 0.6 + pulse * 0.4; ctx.fillStyle = L.col; rr(ctx, x, y, Math.max(8, w * G.groove), h, 6); ctx.globalAlpha = 1;
+  ctx.fillStyle = 'rgba(255,255,255,.45)'; for (const th of [0.2, 0.45, 0.7, 0.9]) ctx.fillRect(x + w * th - 1, y + 3, 2, h - 6);
+  text(L.n + '  x' + (lv + 1), CW / 2, y + h / 2 + 1, 16, '#fff');
+  if (G.toast) { ctx.globalAlpha = Math.min(1, (150 - G.toast.t) / 30); text(G.toast.text, CW / 2, HUD + 46, 16, G.toast.col); ctx.globalAlpha = 1; }
+}
+function drawStar(x, y, r, on) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, d = i % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * d, y + Math.sin(a) * d); }
+  ctx.closePath(); ctx.fillStyle = on ? '#ffd23f' : '#2a2340'; ctx.fill();
+  ctx.strokeStyle = on ? '#fff6a8' : '#4a4070'; ctx.lineWidth = 3; ctx.stroke();
+}
+function drawResult() {
+  const r = G.result, cy = HUD + GH / 2;
+  ctx.globalAlpha = Math.min(1, G.clearT / 15);
+  ctx.fillStyle = '#ffd23f'; rr(ctx, 100, cy - 124, CW - 200, 248, 18);
+  ctx.fillStyle = 'rgba(12,4,30,.96)'; rr(ctx, 104, cy - 120, CW - 208, 240, 16);
+  text('ROUND COMPLETATO!', CW / 2, cy - 88, 32, '#38e07b');
+  for (let i = 0; i < 3; i++) {
+    const on = i < r.stars && G.clearT > 40 + i * 22, pop = on ? Math.max(0, 1 - (G.clearT - 40 - i * 22) / 12) : 0;
+    drawStar(CW / 2 - 76 + i * 76, cy - 30, 26 + pop * 10, on);
+  }
+  text(`TEMPO ${r.time}s ` + (r.fast ? 'OK' : '(SERVE < 30s)'), CW / 2, cy + 30, 16, r.fast ? '#7df9ff' : '#8e80b8');
+  text(`CATENA MIGLIORE ${r.chain} ` + (r.chain3 ? 'OK' : '(SERVE 3+)'), CW / 2, cy + 60, 16, r.chain3 ? '#7df9ff' : '#8e80b8');
+  if (r.best) text('NUOVO RECORD DI STELLE!', CW / 2, cy + 94, 16, '#ffd23f');
+  else if ((G.level + 1) % 2 === 0) text('IN ARRIVO: SFIDA DEL SAPERE', CW / 2, cy + 94, 16, '#ff8ad8');
+  ctx.globalAlpha = 1;
+}
+const QY = 316, QDY = 68;
+function renderQuiz() {
+  const z = G.quiz, Q = z.Q, blink = Math.floor(G.t / 20) % 2;
+  ctx.fillStyle = '#06020f'; ctx.fillRect(0, HUD, CW, GH);
+  text('SFIDA DEL SAPERE', CW / 2, HUD + 36, 32, '#ffd23f');
+  text('- ' + Q.c + ' -', CW / 2, HUD + 76, 16, '#7df9ff');
+  wrapText(Q.q, CW / 2, HUD + 140, 680, 16, '#fff', 26, true);
+  z.opts.forEach((o, i) => {
+    const y = QY + i * QDY, sel = i === z.sel;
+    let bg = sel ? '#3a2370' : '#1c1238', bd = sel ? '#ffd23f' : '#4a3c7a';
+    if (z.done) { if (i === z.right) { bg = '#0f5530'; bd = '#38e07b'; } else if (sel) { bg = '#5c1430'; bd = '#ff3d6e'; } }
+    ctx.fillStyle = bd; rr(ctx, 56, y - 29, CW - 112, 58, 12);
+    ctx.fillStyle = bg; rr(ctx, 60, y - 25, CW - 120, 50, 10);
+    text('ABC'[i], 92, y, 16, sel ? '#ffd23f' : '#c4b5fd');
+    wrapText(o, CW / 2 + 20, y, 560, 16, '#fff', 22, true);
+  });
+  if (!z.done) {
+    text('< >  SCEGLI     BOLLA/SALTA  CONFERMA', CW / 2, 536, 16, blink ? '#c4b5fd' : '#8e80b8');
+    text('RISPOSTE GIUSTE DI FILA: ' + G.quizStreak, CW / 2, 572, 16, '#ff8ad8');
+  } else {
+    text(z.win ? 'ESATTO!  +5000' : 'NON PROPRIO...', CW / 2, 530, 24, z.win ? '#38e07b' : '#ff3d6e');
+    wrapText('LO SAPEVI? ' + Q.e, CW / 2, 590, 690, 16, '#fff1b8', 24, true);
+    if (z.life) text('3 DI FILA: +1 VITA!', CW / 2, 640, 16, '#ffd23f');
+    else if (z.t > 40 && blink) text('PREMI PER CONTINUARE', CW / 2, 648, 16, '#c4b5fd');
   }
 }
 // logo a nuvola
@@ -1095,9 +1373,9 @@ function drawLogo(cx, cy, pulse) {
       const lx = x + widths[i] / 2, ly = wy + Math.sin(G.t * 0.08 + i * 0.9) * 4 - (i % 2 ? pulse * 3 : 0);
       const rot = Math.sin(G.t * 0.05 + i * 1.7) * 0.07 + (i % 2 ? 0.06 : -0.06);
       ctx.save(); ctx.translate(lx, ly); ctx.rotate(rot);
-      ctx.lineWidth = 20; ctx.strokeStyle = '#12052a'; ctx.strokeText(ch, 3, 5); ctx.strokeText(ch, 0, 0);
+      ctx.lineWidth = 12; ctx.strokeStyle = '#12052a'; ctx.strokeText(ch, 3, 5); ctx.strokeText(ch, 0, 0);
       const g = ctx.createLinearGradient(0, -40, 0, 40); g.addColorStop(0, c1); g.addColorStop(1, c2);
-      ctx.lineWidth = 8; ctx.strokeStyle = g; ctx.strokeText(ch, 0, 0);
+      ctx.lineWidth = 3; ctx.strokeStyle = g; ctx.strokeText(ch, 0, 0);
       ctx.fillStyle = g; ctx.fillText(ch, 0, 0);
       ctx.fillStyle = 'rgba(255,255,255,.3)'; ctx.save(); ctx.beginPath(); ctx.rect(-60, -60, 120, 44); ctx.clip(); ctx.fillText(ch, -1, -2); ctx.restore();
       ctx.fillStyle = '#fff'; ell(ctx, -widths[i] * 0.22, -26, 5, 3, -0.5);
@@ -1136,7 +1414,8 @@ function renderTitle(pulse) {
     ? ['SALTA SU UNA BOLLA TENENDO', 'PREMUTO SALTA PER RIMBALZARE', 'BOLLA DORATA = ONDA 808']
     : ['G1: A D muovi  W salta  SPAZIO bolla', 'G2: FRECCE muovi/salta  INVIO bolla', 'P pausa  M musica  R pixel/HD'];
   help.forEach((s, i) => text(s.toUpperCase(), CW / 2, 566 + i * 24, 16, '#c4b5fd'));
-  text('HI-SCORE ' + pad(HI), CW / 2, 648, 16, '#fff');
+  text('HI-SCORE ' + pad(HI) + '   STELLE ' + totalStars(), CW / 2, 648, 16, '#fff');
+  text('SUONA · IMPARA · SCOPPIA', CW / 2, 300, 16, '#fff1b8');
 }
 
 /* =====================================================================
@@ -1156,7 +1435,12 @@ function resize() {
   scale = G.retro ? PIXEL : s * dpr;
   buf.width = Math.ceil(CW * scale); buf.height = Math.ceil(CH * scale);
   buildLayers();
+  scan.width = canvas.width; scan.height = canvas.height;
+  const sc = scan.getContext('2d'), rh = canvas.height / Math.ceil(CH * PIXEL);
+  sc.clearRect(0, 0, scan.width, scan.height); sc.fillStyle = 'rgba(0,0,0,.22)';
+  for (let y = 0; y < scan.height; y += rh) sc.fillRect(0, Math.round(y + rh * 0.6), scan.width, Math.max(1, Math.round(rh * 0.4)));
 }
+const scan = document.createElement('canvas');
 function setRetro(on) {
   G.retro = on; store('bubbleBeatsRetro', on ? 1 : 0);
   document.getElementById('retro').textContent = on ? 'PX' : 'HD';
@@ -1176,11 +1460,12 @@ function frame(now) {
   mctx.setTransform(1, 0, 0, 1, 0, 0);
   mctx.imageSmoothingEnabled = !G.retro;
   mctx.drawImage(buf, 0, 0, canvas.width, canvas.height);
+  if (G.retro) mctx.drawImage(scan, 0, 0);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 // per i test automatici
-window.__game = { G, get players() { return players; }, get enemies() { return enemies; }, get bubbles() { return bubbles; }, startLevel, newGame };
+window.__game = { G, AU, startQuiz, get players() { return players; }, get enemies() { return enemies; }, get bubbles() { return bubbles; }, startLevel, newGame };
 </script>
 </body>
 </html>
