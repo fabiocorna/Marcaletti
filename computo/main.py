@@ -52,8 +52,23 @@ def selftest(report_path: str, fase: int = 99, uscita: str = "terminate") -> int
         app.setOrganizationName("CRN")
         app.setApplicationName("CRN Computo Selftest")
         step("QApplication creata", 3)
+        if fase in (31, 32):
+            # diagnosi: solo il Gestore credenziali, oppure solo il pannello dell'assistente
+            from PySide6.QtCore import QSettings
+            if fase == 31:
+                import keyring
+                keyring.get_password("CRNComputo-Claude", "api_key")
+                step("keyring letto", 31)
+            from crncomputo.assistant_panel import AssistantPanel
+            panel = AssistantPanel(QSettings(), lambda: None, lambda: [])
+            step("pannello assistente creato", 32)
         tmp = tempfile.mkdtemp(prefix="crncomputo_selftest_")
+        if fase == 41:
+            # diagnosi: finestra completa senza leggere il Gestore credenziali
+            import crncomputo.assistant_panel as AP
+            AP.load_api_key = lambda settings: ""
         win = MainWindow()
+        step("finestra creata" + (" (senza keyring)" if fase == 41 else ""), 41)
         step("finestra creata", 4)
         d = win.doc
         d.set_articolo(Articolo("A.01", "Intonaco civile", "m²", Decimal("20")))
@@ -99,19 +114,9 @@ def selftest(report_path: str, fase: int = 99, uscita: str = "terminate") -> int
 
 
 def _hard_exit(code: int) -> None:
-    """Esce senza lo smontaggio delle librerie: su Windows lo scarico delle DLL di Qt
-    con l'applicazione ancora attiva può andare in crash e cambiare il codice di uscita."""
+    """Esce senza lo smontaggio di Python e Qt (le impostazioni sono già salvate)."""
     sys.stdout.flush()
     sys.stderr.flush()
-    if sys.platform == "win32":
-        import ctypes
-        from ctypes import wintypes
-        k = ctypes.windll.kernel32
-        # tipi espliciti: senza, l'handle a 64 bit viene troncato e la chiamata fallisce
-        k.GetCurrentProcess.restype = wintypes.HANDLE
-        k.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
-        k.TerminateProcess.restype = wintypes.BOOL
-        k.TerminateProcess(k.GetCurrentProcess(), code & 0xFFFFFFFF)
     os._exit(code)
 
 
