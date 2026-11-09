@@ -24,8 +24,22 @@ archline/
 ├── README.md        questo file
 ├── binari/          .exe/.dll dell'installazione (NON versionati)
 ├── esempi/          file di progetto di esempio (NON versionati: dati reali)
-└── analisi/         output di REA e note di analisi (versionati)
+├── analisi/         output di REA e note di analisi (versionati)
+└── tools/           script propri (versionati)
 ```
+
+## Leggere un `.pro`
+
+`tools/leggi_pro.py` (Python 3.10+, solo libreria standard) legge indice,
+layer, disegni, materiali e intestazioni dei `.asc`. Formato: `analisi/02-formato-pro.md`.
+
+```
+python tools/leggi_pro.py progetto.pro                riepilogo
+python tools/leggi_pro.py progetto.pro --json         tutto in JSON
+python tools/leggi_pro.py progetto.pro --estrai DIR   estrae il contenuto
+```
+
+Il file originale viene solo letto, mai modificato.
 
 `binari/` ed `esempi/` sono esclusi da git: contengono software proprietario
 e possibili dati di commesse reali.
@@ -50,8 +64,7 @@ esterno: Ghidra, Hopper o IDA. In questo ambiente non è ancora installato.
 
 ## Stato
 
-- [ ] Caricare i binari di ARCHLine.XP in `binari/`
-- [ ] Caricare qualche progetto di esempio in `esempi/`
-- [ ] Panoramica con `rea analyze`
-- [ ] Analisi del formato di progetto
-- [ ] Documentare in `analisi/`
+- [x] Contenitore `.pro` (ZIP), indice XML, layer, materiali — `analisi/02-formato-pro.md`
+- [x] Lettore Python `tools/leggi_pro.py`, verificato su 87 progetti reali
+- [ ] Geometria nei disegni binari `.asc` (`CAD_UNO` / `CadLn3D`)
+- [ ] Panoramica del binario con `rea analyze` (solo se serve per i `.asc`)
