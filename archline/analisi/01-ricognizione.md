@@ -31,6 +31,16 @@ Questa prima fase è stata ricavata **senza scaricare binari**, da artefatti di 
 - Ipotesi forte (da Xerces + zlib): il `.pro` è un **contenitore XML compresso con zlib**
   — da confermare leggendo i primi byte (una firma zlib inizia tipicamente con `0x78`).
 
+### 2.1 Conferme da un secondo crash (commessa FC1162, 2026)
+
+- Stessa versione in uso in più commesse: **2021 build 342** (non 2026).
+- Crash avvenuto durante un comando **`import dwg`**, con modulo in errore
+  `xerces-c_3_1.dll`: anche l'import DWG passa dallo strato XML/Xerces.
+- Stato interno al crash: `axpPro.act2D.ndb2dDynArr: 25429` (25.429 entità nel
+  database 2D), a conferma che `act2D` è il contenitore della grafica 2D.
+- Attenzione metodologica: i crash log elencano solo i moduli **vicini al punto
+  di errore**, non l'elenco completo delle DLL caricate.
+
 ## 3. Interoperabilità già disponibile (senza reverse engineering)
 
 Nella commessa reale ArchLine ha già prodotto:
