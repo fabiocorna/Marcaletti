@@ -43,6 +43,9 @@ class _FieldKeys(QObject):
         return False
 
 from .document import PdfDocument
+from .textselect import PageText
+
+SELECTION_COLOR = QColor(0, 120, 215, 80)
 
 PAGE_GAP = 16.0
 DPI_BASE = 72.0
@@ -103,6 +106,9 @@ class PageView(QGraphicsView):
     toolAction = Signal(str, int, object)
     # (campo, nuovo valore) quando l'utente compila un campo del modulo
     fieldEdited = Signal(object, object)
+    # (azione, pagina, rettangoli o testo) dal menu del testo selezionato
+    selectionAction = Signal(str, int, object)
+    selectionChanged = Signal(bool)
     documentEdited = Signal()
     # (pagina, blocco, nuovo testo) al termine della modifica diretta di un paragrafo
     inlineEditFinished = Signal(int, object, str)
@@ -140,6 +146,11 @@ class PageView(QGraphicsView):
         self._fields: list = []
         self._field_items: list = []
         self._field_editor = None  # (campo, proxy, widget)
+        self._ptext: dict[int, PageText] = {}
+        self._sel = None          # (pagina, inizio, fine) del testo selezionato
+        self._sel_items: list = []
+        self._sel_drag = None     # (pagina, ancora) durante il trascinamento
+        self._last_dbl = None     # (istante, posizione) per il triplo clic
         self.verticalScrollBar().valueChanged.connect(self._on_scroll)
         self.setAcceptDrops(False)
         self.viewport().setMouseTracking(True)
@@ -151,6 +162,8 @@ class PageView(QGraphicsView):
         self._commit_ink()
         self.cancel_inline_edit()
         self.close_field_editor(commit=False)
+        self._ptext.clear()
+        self._sel = None
         self.document = document
         self._rebuild()
         if keep_position:
@@ -201,6 +214,8 @@ class PageView(QGraphicsView):
             item.setX(x)
         scene.setSceneRect(QRectF(-PAGE_GAP, 0, max_w + 2 * PAGE_GAP, y))
         self._build_field_overlays()
+        self._sel_items.clear()  # eliminati con la scena; si ridisegnano alla nuova scala
+        self._draw_selection()
         self._render_timer.start()
 
     def _apply_fit(self) -> None:
@@ -277,6 +292,9 @@ class PageView(QGraphicsView):
 
     def refresh_page(self, index: int) -> None:
         self._rendered.pop(index, None)
+        self._ptext.pop(index, None)
+        if self._sel and self._sel[0] == index:
+            self.clear_selection()
         self._render_visible()
 
     def _on_scroll(self) -> None:
@@ -365,6 +383,132 @@ class PageView(QGraphicsView):
             self._search_items.append(item)
 
     # ------------------------------------------------------------------ strumenti
+    # ------------------------------------------------------- selezione del testo
+    def page_text(self, index: int) -> PageText:
+        if index not in self._ptext:
+            self._ptext[index] = PageText(self.document.page(index))
+        return self._ptext[index]
+
+    @property
+    def has_selection(self) -> bool:
+        return self._sel is not None and self._sel[1] is not None
+
+    def selected_text(self) -> str:
+        if not self.has_selection:
+            return ""
+        page, a, b = self._sel
+        return self.page_text(page).text(a, b)
+
+    def selection_rects(self) -> tuple[int, list]:
+        page, a, b = self._sel
+        return page, self.page_text(page).rects(a, b)
+
+    def set_selection(self, page: int, a: int | None, b: int | None) -> None:
+        self._sel = (page, a, b) if a is not None and b is not None else None
+        self._draw_selection()
+        self.selectionChanged.emit(self.has_selection)
+
+    def clear_selection(self) -> None:
+        if self._sel is not None:
+            self._sel = None
+            self._draw_selection()
+            self.selectionChanged.emit(False)
+
+    def _draw_selection(self) -> None:
+        for it in self._sel_items:
+            try:
+                if it.scene() is not None:
+                    self.scene().removeItem(it)
+            except RuntimeError:
+                pass
+        self._sel_items.clear()
+        if not self.has_selection or not self._frames:
+            return
+        page, rects = self.selection_rects()
+        if page >= len(self._frames):
+            return
+        for r in rects:
+            item = self.scene().addRect(self._doc_rect_to_scene(page, r), QPen(Qt.NoPen), QBrush(SELECTION_COLOR))
+            item.setZValue(7)
+            self._sel_items.append(item)
+
+    def copy_selection(self) -> bool:
+        from PySide6.QtWidgets import QApplication
+        text = self.selected_text()
+        if text:
+            QApplication.clipboard().setText(text)
+        return bool(text)
+
+    def select_all_page(self) -> None:
+        if not self.document:
+            return
+        rng = self.page_text(self._current_page).all()
+        if rng:
+            self.set_selection(self._current_page, *rng)
+
+    def _text_hit(self, scene_pt: QPointF, nearest: bool):
+        """(pagina, indice carattere) sotto il punto; con nearest il più vicino della pagina."""
+        idx = self._page_at(scene_pt)
+        if idx < 0:
+            return None
+        pt = self._scene_to_doc(idx, scene_pt)
+        pt_text = self.page_text(idx)
+        i = pt_text.char_at(pt)
+        if i is None and nearest:
+            i = pt_text.nearest(pt)
+        return (idx, i) if i is not None else None
+
+    def _over_text(self, scene_pt: QPointF) -> bool:
+        idx = self._page_at(scene_pt)
+        return idx >= 0 and self.page_text(idx).is_over_text(self._scene_to_doc(idx, scene_pt))
+
+    def keyPressEvent(self, event) -> None:
+        from PySide6.QtGui import QKeySequence
+        if event.matches(QKeySequence.Copy) and self.has_selection:
+            self.copy_selection()
+            self.selectionAction.emit("copied", self._sel[0], self.selected_text())
+            return
+        if event.matches(QKeySequence.SelectAll):
+            self.select_all_page()
+            return
+        if event.key() == Qt.Key_Escape and self.has_selection:
+            self.clear_selection()
+            return
+        super().keyPressEvent(event)
+
+    def contextMenuEvent(self, event) -> None:
+        from PySide6.QtWidgets import QMenu
+        if not self.document:
+            return
+        sp = self.mapToScene(event.pos())
+        idx = self._page_at(sp)
+        if idx < 0:
+            return
+        menu = QMenu(self)
+        if self.has_selection:
+            text = self.selected_text()
+            page = self._sel[0]
+            preview = " ".join(text.split())[:30] + ("…" if len(text) > 30 else "")
+            menu.addAction("Copia", lambda: (self.copy_selection(),
+                                             self.selectionAction.emit("copied", page, text)))
+            menu.addSeparator()
+            for label, kind in (("Evidenzia", "highlight"), ("Sottolinea", "underline"), ("Barra", "strikeout")):
+                menu.addAction(label, lambda k=kind: self.selectionAction.emit(k, page, self.selection_rects()[1]))
+            menu.addSeparator()
+            menu.addAction(f"Cerca «{preview}»", lambda: self.selectionAction.emit("search", page, text))
+            menu.addSeparator()
+        menu.addAction("Seleziona tutto il testo della pagina", lambda: (self.go_to_page(idx)
+                       if idx != self._current_page else None, self._select_page(idx)))
+        menu.addAction("Copia il testo della pagina", lambda: self.selectionAction.emit(
+            "copy_page", idx, self.page_text(idx).text(*self.page_text(idx).all())
+            if self.page_text(idx).all() else ""))
+        menu.exec(event.globalPos())
+
+    def _select_page(self, idx: int) -> None:
+        rng = self.page_text(idx).all()
+        if rng:
+            self.set_selection(idx, *rng)
+
     # ------------------------------------------------------- moduli compilabili
     def refresh_fields(self) -> None:
         self._fields = self.document.form_fields() if self.document else []
@@ -588,6 +732,32 @@ class PageView(QGraphicsView):
             if field is not None:
                 self.activate_field(field)
                 return
+        if self.document and event.button() == Qt.LeftButton and self.tool in (HAND, SELECT) \
+                and not (self.tool == SELECT and event.modifiers() & Qt.AltModifier):
+            sp = self.mapToScene(event.position().toPoint())
+            # Con la mano si seleziona solo partendo dal testo; altrove si scorre la pagina
+            if self.tool == SELECT or self._over_text(sp):
+                hit = self._text_hit(sp, nearest=True)
+                if hit is not None:
+                    page, i = hit
+                    pt_text = self.page_text(page)
+                    from PySide6.QtWidgets import QApplication
+                    if self._last_dbl and (event.timestamp() - self._last_dbl[0]) < \
+                            QApplication.doubleClickInterval() and \
+                            (event.position() - self._last_dbl[1]).manhattanLength() < 6:
+                        self.set_selection(page, *pt_text.line_at(i))  # triplo clic: riga
+                        self._last_dbl = None
+                        return
+                    if event.modifiers() & Qt.ShiftModifier and self.has_selection and self._sel[0] == page:
+                        self.set_selection(page, self._sel[1], i)
+                    else:
+                        self.set_selection(page, i, i)
+                        self._sel_moved = False
+                    self._sel_drag = (page, self._sel[1])
+                    self.viewport().setCursor(Qt.IBeamCursor)
+                    self.setFocus()  # per Ctrl+C
+                    return
+            self.clear_selection()
         if not self.document or event.button() != Qt.LeftButton or self.tool == HAND:
             super().mousePressEvent(event)
             return
@@ -646,6 +816,19 @@ class PageView(QGraphicsView):
             else:
                 self.viewport().setCursor({HAND: Qt.OpenHandCursor, SELECT: Qt.IBeamCursor,
                                            EDIT_TEXT: Qt.IBeamCursor}[self.tool])
+        if self._sel_drag is not None:
+            page, anchor = self._sel_drag
+            sp = self._clamp_to_page(page, self.mapToScene(event.position().toPoint()))
+            j = self.page_text(page).nearest(self._scene_to_doc(page, sp))
+            if j is not None and (not self._sel or self._sel[2] != j):
+                self._sel_moved = True
+                self.set_selection(page, anchor, j)
+            return
+        if event.buttons() == Qt.NoButton and self.tool == HAND and self.document and \
+                self._field_editor is None and self._inline is None:
+            if self.field_at(self.mapToScene(event.position().toPoint())) is None:
+                over = self._over_text(self.mapToScene(event.position().toPoint()))
+                self.viewport().setCursor(Qt.IBeamCursor if over else Qt.OpenHandCursor)
         if self._inline is not None:
             super().mouseMoveEvent(event)
             return
@@ -664,6 +847,12 @@ class PageView(QGraphicsView):
             self._rubber.setRect(QRectF(self._drag_start, sp).normalized())
 
     def mouseReleaseEvent(self, event) -> None:
+        if self._sel_drag is not None:
+            self._sel_drag = None
+            # Clic semplice senza trascinare: nessuna selezione
+            if not getattr(self, "_sel_moved", True) and self._sel and self._sel[1] == self._sel[2]:
+                self.clear_selection()
+            return
         if self._inline is not None:
             super().mouseReleaseEvent(event)
             return
@@ -716,6 +905,16 @@ class PageView(QGraphicsView):
             self.toolAction.emit(INK, page, strokes)
 
     def mouseDoubleClickEvent(self, event) -> None:
+        if self.document and self.tool in (HAND, SELECT) and event.button() == Qt.LeftButton:
+            sp = self.mapToScene(event.position().toPoint())
+            if self.field_at(sp) is None and self._over_text(sp):
+                hit = self._text_hit(sp, nearest=False)
+                if hit is not None:
+                    page, i = hit
+                    self.set_selection(page, *self.page_text(page).word_at(i))  # doppio clic: parola
+                    self._last_dbl = (event.timestamp(), event.position())
+                    self._sel_drag = None
+                    return
         if self.document and self.tool == HAND and event.button() == Qt.LeftButton:
             sp = self.mapToScene(event.position().toPoint())
             idx = self._page_at(sp)

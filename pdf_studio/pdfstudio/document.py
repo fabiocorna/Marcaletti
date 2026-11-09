@@ -387,6 +387,20 @@ class PdfDocument:
             annot.update()
         return True
 
+    def add_markup_rects(self, index: int, rects, kind: str = "highlight", color=None) -> None:
+        """Evidenzia/sottolinea/barra esattamente le righe indicate (testo selezionato)."""
+        if not rects:
+            return
+        self.checkpoint()
+        page = self.doc[index]
+        quads = [pymupdf.Rect(r).quad for r in rects]
+        adder = {"highlight": page.add_highlight_annot, "underline": page.add_underline_annot,
+                 "strikeout": page.add_strikeout_annot}[kind]
+        annot = adder(quads)
+        if color:
+            annot.set_colors(stroke=color)
+            annot.update()
+
     def add_area_highlight(self, index: int, rect: pymupdf.Rect, color=(1, 1, 0)) -> None:
         self.checkpoint()
         annot = self.doc[index].add_highlight_annot(rect.quad)

@@ -28,8 +28,10 @@ OPEN_FILTER = ("Documenti supportati (*.pdf *.p7m *.xps *.oxps *.epub *.cbz *.fb
 IMAGE_FILTER = "Immagini (" + " ".join("*" + e for e in IMAGE_EXTENSIONS) + ")"
 
 TOOLS = [
-    (V.HAND, "Mano", "✋", "Scorri il documento, compila i moduli, doppio clic per modificare un commento", "H"),
-    (V.SELECT, "Seleziona testo", "⌶", "Trascina per copiare il testo negli appunti", "V"),
+    (V.HAND, "Mano", "✋", "Trascina sul testo per selezionarlo (Ctrl+C copia), altrove scorri il documento; "
+     "clic sui campi dei moduli per compilarli", "H"),
+    (V.SELECT, "Seleziona testo", "⌶", "Trascina per selezionare il testo, doppio clic = parola, triplo clic = riga; "
+     "Alt+trascina per una selezione a riquadro (tabelle)", "V"),
     (V.EDIT_TEXT, "Modifica testo", "✎", "Clicca su un testo esistente per modificarlo", "E"),
     (V.TEXT, "Aggiungi testo", "T", "Clicca o trascina un riquadro per inserire testo", "T"),
     (V.HIGHLIGHT, "Evidenzia", "▌", "Trascina sul testo per evidenziarlo", "U"),
@@ -277,6 +279,9 @@ class MainWindow(QMainWindow):
         self.a_find = self._act("&Trova…", self.focus_search, QKeySequence.Find)
         self.a_replace = self._act("Trova e &sostituisci…", self.find_replace, "Ctrl+H")
         self.a_copy_page_text = self._act("Copia testo della pagina", self.copy_page_text)
+        # Le scorciatoie Ctrl+C / Ctrl+A sono gestite dal visualizzatore (non rubano quelle dei campi)
+        self.a_copy = self._act("Copia\tCtrl+C", self.copy_selection)
+        self.a_select_all = self._act("Seleziona tutto il testo della pagina\tCtrl+A", self.select_all_text)
 
         self.a_zoom_in = self._act("Ingrandisci", lambda: self._zoom(1.25), QKeySequence.ZoomIn, glyph_icon("+"))
         self.a_zoom_out = self._act("Riduci", lambda: self._zoom(0.8), QKeySequence.ZoomOut, glyph_icon("−"))
@@ -369,6 +374,9 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("&Modifica")
         for a in (self.a_undo, self.a_redo):
             m.addAction(a)
+        m.addSeparator()
+        m.addAction(self.a_copy)
+        m.addAction(self.a_select_all)
         m.addSeparator()
         m.addAction(self.a_find)
         m.addAction(self.a_replace)
@@ -528,11 +536,12 @@ class MainWindow(QMainWindow):
                   self.a_rot_r, self.a_del_page, self.a_ins_blank, self.a_ins_file, self.a_dup, self.a_extract,
                   self.a_split, self.a_watermark, self.a_pagenums, self.a_flatten, self.a_ocr, self.a_move_up,
                   self.a_move_down, self.a_prev, self.a_next, self.a_copy_page_text, self.a_uncrop,
-                  self.a_pdfa, self.a_replace, self.a_export_dxf,
+                  self.a_pdfa, self.a_replace, self.a_export_dxf, self.a_select_all,
                   *self.tool_actions.values()):
             a.setEnabled(has)
         self.a_undo.setEnabled(bool(d and d.can_undo))
         self.a_redo.setEnabled(bool(d and d.can_redo))
+        self.a_copy.setEnabled(bool(t and t.view.has_selection))
         self.a_signatures.setEnabled(bool(d and d.signers))
         self.page_spin.setEnabled(has)
         self.zoom_combo.setEnabled(has)
@@ -661,6 +670,8 @@ class MainWindow(QMainWindow):
         t.view.toolAction.connect(self.on_tool_action)
         t.view.inlineEditFinished.connect(self._inline_edit_done)
         t.view.fieldEdited.connect(self._field_edited)
+        t.view.selectionAction.connect(self._selection_action)
+        t.view.selectionChanged.connect(lambda _has: self._update_ui())
         t.view.set_show_fields(self.a_fields.isChecked())
         t.thumbs.orderChanged.connect(self.reorder_pages)
         t.thumbs.setContextMenuPolicy(Qt.ActionsContextMenu)
@@ -1069,6 +1080,46 @@ class MainWindow(QMainWindow):
         d = self.doc()
         if d and d.redo():
             self._changed()
+
+    def copy_selection(self) -> None:
+        t = self.tab()
+        if t and t.view.copy_selection():
+            self._copied_message(t.view.selected_text())
+
+    def select_all_text(self) -> None:
+        t = self.tab()
+        if t:
+            t.view.select_all_page()
+            t.view.setFocus()
+
+    def _copied_message(self, text: str) -> None:
+        words = len(text.split())
+        preview = " ".join(text.split())[:60]
+        self.statusBar().showMessage(f"Copiato negli appunti ({words} parole): «{preview}"
+                                     f"{'…' if len(text) > 60 else ''}»", 5000)
+
+    def _selection_action(self, action: str, page: int, data) -> None:
+        d = self.doc()
+        t = self.tab()
+        if not d or not t:
+            return
+        if action == "copied":
+            self._copied_message(data)
+        elif action == "copy_page":
+            if data:
+                QApplication.clipboard().setText(data)
+                self._copied_message(data)
+            else:
+                self.statusBar().showMessage("La pagina non contiene testo selezionabile "
+                                             "(se è scansionata usa Strumenti → OCR)", 6000)
+        elif action == "search":
+            self.search_edit.setText(" ".join(data.split())[:200])
+            self.search_next()
+        elif action in ("highlight", "underline", "strikeout"):
+            color = self._rgb(self.highlight_color) if action == "highlight" else self._rgb(self.tool_color)
+            d.add_markup_rects(page, data, action, color)
+            t.view.clear_selection()
+            self._changed(full=False, page=page)
 
     def copy_page_text(self) -> None:
         t = self.tab()

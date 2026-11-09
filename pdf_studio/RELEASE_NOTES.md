@@ -1,12 +1,17 @@
-## CRN PDF Studio 1.4.0
+## CRN PDF Studio 1.5.0
 
 Lettore ed editor PDF per Windows.
 
 ### Download
-- **CRNPDFStudio-Setup-1.4.0.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
-- **CRNPDFStudio-portabile-1.4.0.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
+- **CRNPDFStudio-Setup-1.5.0.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
+- **CRNPDFStudio-portabile-1.5.0.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
 
 Al primo avvio Windows può mostrare «Windows ha protetto il PC» (programma senza firma digitale): *Ulteriori informazioni → Esegui comunque*.
+
+### Novità della 1.5
+- **Selezione e copia del testo come in Acrobat**: con lo strumento Mano basta trascinare sul testo (il cursore diventa una «I»); doppio clic seleziona una parola, triplo clic la riga, **Ctrl+A** tutto il testo della pagina, **Ctrl+C** copia. Il testo copiato mantiene i paragrafi interi, pronto da incollare in Word.
+- **Clic destro** sul testo selezionato: Copia, Evidenzia, Sottolinea, Barra, Cerca nel documento.
+- Strumento *Seleziona testo*: **Alt+trascina** per copiare un riquadro (utile per le tabelle).
 
 ### Novità della 1.4
 - **Moduli PDF compilabili** come in Acrobat: i campi sono evidenziati in azzurro, si scrive direttamente nel campo, **Tab** / **Maiusc+Tab** per passare al campo successivo o precedente, clic per caselle e pulsanti di scelta, menu a discesa per gli elenchi. Ogni modifica si annulla con Ctrl+Z. Evidenziazione attivabile da *Visualizza → Evidenzia campi dei moduli*.

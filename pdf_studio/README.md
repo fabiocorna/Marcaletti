@@ -11,6 +11,8 @@ Lettore ed editor PDF per Windows, in stile Adobe Acrobat. Scritto in Python con
 - Visualizzazione a scorrimento continuo, zoom (Ctrl+rotellina, adatta larghezza/pagina)
 - Miniature delle pagine, più documenti aperti in schede
 - Ricerca nel testo (Ctrl+F, Invio = successivo, Maiusc+Invio = precedente)
+- Selezione del testo come in Acrobat: trascina sul testo, doppio/triplo clic per parola/riga,
+  Ctrl+A e Ctrl+C; clic destro per copiare, evidenziare o cercare la selezione
 - Apre anche immagini, XPS, EPUB (convertiti in PDF); trascinamento dei file sulla finestra
 - Documenti protetti da password, stampa, file recenti
 
