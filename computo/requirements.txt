@@ -1,0 +1,9 @@
+# Versioni bloccate su quelle provate (come in CRN PDF Studio)
+PySide6==6.12.0
+# Assistente Claude
+anthropic==1.17.0
+keyring>=24,<26
+# Prezzari Excel ed esportazione .xlsx
+openpyxl==3.1.5
+# Stampe PDF
+reportlab==5.0.1

@@ -1,0 +1,62 @@
+name: CRN Computo - build Windows
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "computo/**"
+      - ".github/workflows/computo-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: computo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installa dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q tests
+
+      - name: Crea eseguibile
+        run: >
+          pyinstaller --noconfirm --clean --windowed
+          --name CRNComputo --icon assets\computo.ico
+          --add-data "assets;assets"
+          --collect-submodules keyring
+          main.py
+
+      - name: Collaudo dell'eseguibile
+        run: |
+          $out = "$env:RUNNER_TEMP\selftest_computo.txt"
+          $p = Start-Process -FilePath dist\CRNComputo\CRNComputo.exe -ArgumentList "--selftest", "`"$out`"" -PassThru
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "Collaudo bloccato (finestra di errore?)" }
+          Get-Content $out
+          if ($p.ExitCode -ne 0) { throw "Collaudo dell'eseguibile non riuscito" }
+
+      - name: Pacchetto portabile
+        run: |
+          $v = python -c "import crncomputo; print(crncomputo.__version__)"
+          Compress-Archive -Path dist\CRNComputo\* -DestinationPath "dist\CRNComputo-portabile-$v.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CRNComputo-portable
+          path: computo/dist/CRNComputo-portabile-*.zip

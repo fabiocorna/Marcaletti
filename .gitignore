@@ -6,3 +6,6 @@ pdf_studio/dist/
 pdf_studio/.venv/
 *.spec
 .pytest_cache/
+computo/build/
+computo/dist/
+computo/.venv/
