@@ -7,25 +7,7 @@ import sys
 import traceback
 
 
-def _shutdown(app, win, code: int) -> None:
-    """Chiusura ordinata: prima la finestra, poi l'applicazione Qt, poi il processo.
-
-    Su Windows uscire con la finestra Qt ancora viva fa andare in crash lo scarico delle
-    librerie (0xC0000005, «il programma ha smesso di funzionare»): distruggerle prima
-    lo evita. Le impostazioni sono già salvate alla chiusura della finestra."""
-    import shiboken6
-    if win is not None and shiboken6.isValid(win):
-        win.close()
-        shiboken6.delete(win)
-    if app is not None and shiboken6.isValid(app):
-        app.processEvents()
-        app.shutdown()
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os._exit(code)
-
-
-def selftest(report_path: str) -> None:
+def selftest(report_path: str) -> int:
     """Carica tutti i moduli, crea un progetto con una voce, lo salva, lo riapre e
     produce le stampe. Scrive l'avanzamento in ``report_path`` passo per passo, così
     un blocco o un crash indicano dove sono avvenuti."""
@@ -43,7 +25,6 @@ def selftest(report_path: str) -> None:
         log.flush()
         os.fsync(log.fileno())
 
-    app = win = None
     try:
         import tempfile
         from decimal import Decimal
@@ -77,6 +58,10 @@ def selftest(report_path: str) -> None:
         step("stampe PDF ed Excel")
         assert assistant.validate_input("leggi_progetto", {}) is None
         win.doc.modified = False
+        win.close()
+        win.deleteLater()
+        app.processEvents()
+        step("finestra chiusa")
         step("ESITO: OK")
         code = 0
     except Exception:
@@ -85,13 +70,15 @@ def selftest(report_path: str) -> None:
         code = 1
     faulthandler.disable()
     log.close()
-    _shutdown(app, win, code)
+    # Uscita ordinaria di Python: verificata su Windows. Le uscite forzate (os._exit,
+    # TerminateProcess) con Qt attivo vanno in crash o si bloccano.
+    return code
 
 
 def main() -> int:
     if "--selftest" in sys.argv:
         i = sys.argv.index("--selftest")
-        selftest(sys.argv[i + 1] if len(sys.argv) > i + 1 else "selftest.txt")
+        return selftest(sys.argv[i + 1] if len(sys.argv) > i + 1 else "selftest.txt")
     if sys.platform == "win32":
         try:
             import ctypes
@@ -112,10 +99,7 @@ def main() -> int:
     files = [a for a in sys.argv[1:] if not a.startswith("--")]
     if files:
         win.open_project(os.path.abspath(files[0]))
-    code = app.exec()
-    win.settings.sync()
-    _shutdown(app, win, code)
-    return code
+    return app.exec()
 
 
 if __name__ == "__main__":
