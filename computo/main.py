@@ -9,9 +9,22 @@ import traceback
 
 def selftest(report_path: str) -> int:
     """Carica tutti i moduli, crea un progetto con una voce, lo salva, lo riapre e
-    produce tutte le stampe. Scrive l'esito in ``report_path``."""
+    produce le stampe. Scrive l'avanzamento in ``report_path`` passo per passo, così
+    un blocco o un crash indicano dove sono avvenuti."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    lines = []
+    log = open(report_path, "w", encoding="utf-8", buffering=1)
+    import faulthandler
+    faulthandler.enable(log)               # su Windows registra anche gli access violation
+    if sys.platform == "win32":
+        import ctypes
+        # niente finestra «il programma ha smesso di funzionare»: il collaudo non si blocca
+        ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002 | 0x8000)
+
+    def step(text):
+        log.write(text + "\n")
+        log.flush()
+        os.fsync(log.fileno())
+
     try:
         import tempfile
         from decimal import Decimal
@@ -21,12 +34,14 @@ def selftest(report_path: str) -> int:
         from crncomputo import assistant, export
         from crncomputo.mainwindow import MainWindow
         from crncomputo.model import Articolo, Misura
+        step("moduli caricati")
 
         app = QApplication(sys.argv[:1])
         app.setOrganizationName("CRN")
         app.setApplicationName("CRN Computo Selftest")
         tmp = tempfile.mkdtemp(prefix="crncomputo_selftest_")
         win = MainWindow()
+        step("finestra creata")
         d = win.doc
         d.set_articolo(Articolo("A.01", "Intonaco civile", "m²", Decimal("20")))
         cap = d.add_capitolo("Finiture")
@@ -37,21 +52,24 @@ def selftest(report_path: str) -> int:
         d.save(path)
         win.open_project(path)
         assert win.doc.p.totale_voci() == Decimal("400.00"), "riapertura"
+        step("progetto salvato e riaperto")
         export.export_computo_pdf(win.doc.p, os.path.join(tmp, "c.pdf"))
         export.export_xlsx(win.doc.p, os.path.join(tmp, "c.xlsx"))
+        step("stampe PDF ed Excel")
         assert assistant.validate_input("leggi_progetto", {}) is None
         win.doc.modified = False
         win.close()
+        step("finestra chiusa")
         win.deleteLater()
         app.processEvents()
-        lines.append("ESITO: OK")
+        step("finestra distrutta")
+        step("ESITO: OK")
         code = 0
     except Exception:
-        lines.append(traceback.format_exc())
-        lines.append("ESITO: ERRORE")
+        step(traceback.format_exc())
+        step("ESITO: ERRORE")
         code = 1
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+    log.close()
     _hard_exit(code)
 
 

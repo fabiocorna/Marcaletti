@@ -48,7 +48,11 @@ jobs:
           $out = "$env:RUNNER_TEMP\selftest_computo.txt"
           $p = Start-Process -FilePath dist\CRNComputo\CRNComputo.exe -ArgumentList "--selftest", "`"$out`"" -PassThru
           $null = $p.Handle   # senza questo ExitCode resta vuoto se il processo termina in fretta
-          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "Collaudo bloccato (finestra di errore?)" }
+          if (-not $p.WaitForExit(180000)) {
+            $p.Kill()
+            if (Test-Path $out) { Get-Content $out }
+            throw "Collaudo bloccato: l'ultimo passo riuscito è quello sopra"
+          }
           $p.WaitForExit()
           $report = Get-Content $out -Raw
           $report
