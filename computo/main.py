@@ -42,6 +42,7 @@ def selftest(report_path: str) -> int:
         assert assistant.validate_input("leggi_progetto", {}) is None
         win.doc.modified = False
         win.close()
+        win.deleteLater()
         app.processEvents()
         lines.append("ESITO: OK")
         code = 0
@@ -51,6 +52,18 @@ def selftest(report_path: str) -> int:
         code = 1
     with open(report_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
+    _hard_exit(code)
+
+
+def _hard_exit(code: int) -> None:
+    """Esce senza lo smontaggio delle librerie: su Windows lo scarico delle DLL di Qt
+    con l'applicazione ancora attiva può andare in crash e cambiare il codice di uscita."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    if sys.platform == "win32":
+        import ctypes
+        k = ctypes.windll.kernel32
+        k.TerminateProcess(k.GetCurrentProcess(), code)
     os._exit(code)
 
 
