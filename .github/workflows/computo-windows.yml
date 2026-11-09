@@ -43,6 +43,23 @@ jobs:
           --collect-submodules keyring
           main.py
 
+      - name: Diagnosi dell'uscita (fasi e modi di uscita)
+        continue-on-error: true
+        run: |
+          foreach ($f in 1, 2, 3, 4, 99) {
+            foreach ($u in "terminate", "exit") {
+              $out = "$env:RUNNER_TEMP\diag_${f}_${u}.txt"
+              $p = Start-Process -FilePath dist\CRNComputo\CRNComputo.exe -ArgumentList "--selftest", "`"$out`"", "--fase", "$f", "--uscita", $u -PassThru
+              $null = $p.Handle
+              $t0 = Get-Date
+              if ($p.WaitForExit(60000)) { $code = $p.ExitCode } else { $p.Kill(); $code = "BLOCCATO" }
+              $secs = [int]((Get-Date) - $t0).TotalSeconds
+              $last = if (Test-Path $out) { (Get-Content $out | Select-Object -Last 3) -join " | " } else { "nessun rapporto" }
+              "fase $f, uscita ${u}: $code dopo $secs s  [$last]"
+            }
+          }
+          Get-Process CRNComputo -ErrorAction SilentlyContinue | Format-Table Id, StartTime
+
       - name: Collaudo dell'eseguibile
         run: |
           $out = "$env:RUNNER_TEMP\selftest_computo.txt"

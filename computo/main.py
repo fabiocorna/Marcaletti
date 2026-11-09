@@ -7,10 +7,18 @@ import sys
 import traceback
 
 
-def selftest(report_path: str) -> int:
+class _Stop(Exception):
+    pass
+
+
+def selftest(report_path: str, fase: int = 99, uscita: str = "terminate") -> int:
     """Carica tutti i moduli, crea un progetto con una voce, lo salva, lo riapre e
     produce le stampe. Scrive l'avanzamento in ``report_path`` passo per passo, così
-    un blocco o un crash indicano dove sono avvenuti."""
+    un blocco o un crash indicano dove sono avvenuti.
+
+    Per la diagnosi su Windows: ``--fase N`` si ferma dopo la fase N (1 Qt, 2 moduli del
+    programma, 3 QApplication, 4 finestra) e ``--uscita terminate|exit|normale`` sceglie
+    come terminare il processo."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     log = open(report_path, "w", encoding="utf-8", buffering=1)
     import faulthandler
@@ -20,28 +28,33 @@ def selftest(report_path: str) -> int:
         # niente finestra «il programma ha smesso di funzionare»: il collaudo non si blocca
         ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002 | 0x8000)
 
-    def step(text):
+    def step(text, n=None):
         log.write(text + "\n")
         log.flush()
         os.fsync(log.fileno())
+        if n is not None and n >= fase:
+            raise _Stop
 
+    app = win = None
     try:
         import tempfile
         from decimal import Decimal
 
         from PySide6.QtWidgets import QApplication
+        step("Qt caricato", 1)
 
         from crncomputo import assistant, export
         from crncomputo.mainwindow import MainWindow
         from crncomputo.model import Articolo, Misura
-        step("moduli caricati")
+        step("moduli caricati", 2)
 
         app = QApplication(sys.argv[:1])
         app.setOrganizationName("CRN")
         app.setApplicationName("CRN Computo Selftest")
+        step("QApplication creata", 3)
         tmp = tempfile.mkdtemp(prefix="crncomputo_selftest_")
         win = MainWindow()
-        step("finestra creata")
+        step("finestra creata", 4)
         d = win.doc
         d.set_articolo(Articolo("A.01", "Intonaco civile", "m²", Decimal("20")))
         cap = d.add_capitolo("Finiture")
@@ -65,13 +78,24 @@ def selftest(report_path: str) -> int:
         step("finestra distrutta")
         step("ESITO: OK")
         code = 0
+    except _Stop:
+        step(f"ESITO: OK (fermato alla fase {fase})")
+        code = 0
     except Exception:
         step(traceback.format_exc())
         step("ESITO: ERRORE")
         code = 1
+    step(f"uscita: {uscita}")
+    if uscita == "normale":
+        faulthandler.disable()
+        log.close()
+        return code
+    if uscita == "exit":
+        os._exit(code)
     faulthandler.disable()
     log.close()
     _hard_exit(code)
+    return code
 
 
 def _hard_exit(code: int) -> None:
@@ -93,8 +117,10 @@ def _hard_exit(code: int) -> None:
 
 def main() -> int:
     if "--selftest" in sys.argv:
-        i = sys.argv.index("--selftest")
-        return selftest(sys.argv[i + 1] if len(sys.argv) > i + 1 else "selftest.txt")
+        def arg(name, default):
+            return sys.argv[sys.argv.index(name) + 1] if name in sys.argv[:-1] else default
+        return selftest(arg("--selftest", "selftest.txt"), int(arg("--fase", "99")),
+                        arg("--uscita", "terminate"))
     if sys.platform == "win32":
         try:
             import ctypes
