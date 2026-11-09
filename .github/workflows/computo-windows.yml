@@ -46,10 +46,12 @@ jobs:
       - name: Diagnosi dell'uscita (fasi e modi di uscita)
         continue-on-error: true
         run: |
-          # 3 QApplication, 31 solo keyring, 32 solo pannello assistente,
-          # 41 finestra senza keyring, 4 finestra completa, 99 collaudo completo
-          foreach ($f in 3, 31, 32, 41, 4, 99) {
-            foreach ($u in "exit") {
+          # 42 scheda Computo, 43 altre schede, 44 pannello Prezzari, 45 menu + assistente,
+          # 4 finestra completa, 99 collaudo completo; uscite: exit, distruggi, normale
+          $casi = @("42 exit", "43 exit", "44 exit", "45 exit", "4 distruggi", "99 distruggi", "99 normale")
+          foreach ($caso in $casi) {
+            $f, $u = $caso.Split(" ")
+            foreach ($x in 1) {
               $out = "$env:RUNNER_TEMP\diag_${f}_${u}.txt"
               $p = Start-Process -FilePath dist\CRNComputo\CRNComputo.exe -ArgumentList "--selftest", "`"$out`"", "--fase", "$f", "--uscita", $u -PassThru
               $null = $p.Handle

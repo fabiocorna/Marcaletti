@@ -67,6 +67,29 @@ def selftest(report_path: str, fase: int = 99, uscita: str = "terminate") -> int
             # diagnosi: finestra completa senza leggere il Gestore credenziali
             import crncomputo.assistant_panel as AP
             AP.load_api_key = lambda settings: ""
+        if fase in (42, 43, 44, 45):
+            # diagnosi: solo una parte della finestra principale
+            from PySide6.QtCore import QSettings
+            from PySide6.QtWidgets import QMainWindow
+            import crncomputo.mainwindow as MW
+            part = MW.MainWindow.__new__(MW.MainWindow)
+            QMainWindow.__init__(part)
+            part.settings = QSettings()
+            part.doc = part._new_doc()
+            part.sel_cap, part.sel_voce, part._updating, part._prezzari = MW.CAP_ALL, None, False, None
+            part.libreria = MW.Libreria(os.path.join(tmp, "lib"))
+            if fase == 42:
+                part.setCentralWidget(part._build_computo())
+            elif fase == 43:
+                for b in (part._build_elenco, part._build_quadro, part._build_dati):
+                    b()
+            elif fase == 44:
+                part._build_prezzari_dock()
+            else:
+                part.assistant = MW.AssistantPanel(part.settings, lambda: part.doc, lambda: [])
+                part._build_menus()
+            win = part
+            step(f"parte {fase} creata", fase)
         win = MainWindow()
         step("finestra creata" + (" (senza keyring)" if fase == 41 else ""), 41)
         step("finestra creata", 4)
@@ -101,6 +124,21 @@ def selftest(report_path: str, fase: int = 99, uscita: str = "terminate") -> int
         step("ESITO: ERRORE")
         code = 1
     step(f"uscita: {uscita}")
+    if uscita == "distruggi":
+        # distrugge esplicitamente finestra e applicazione prima di uscire
+        import shiboken6
+        if win is not None and shiboken6.isValid(win):
+            win.close()
+            shiboken6.delete(win)
+        if app is not None:
+            app.processEvents()
+            shut = getattr(app, "shutdown", None)
+            if shut:
+                shut()
+            elif shiboken6.isValid(app):
+                shiboken6.delete(app)
+        step("finestra e applicazione distrutte")
+        os._exit(code)
     if uscita == "normale":
         faulthandler.disable()
         log.close()
