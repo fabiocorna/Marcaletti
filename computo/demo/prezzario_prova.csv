@@ -1,0 +1,26 @@
+Codice;Descrizione;U.M.;Prezzo;% Manodopera
+1C.01;Demolizioni e rimozioni;;;
+1C.01.010.0010;Demolizione di tramezzi in laterizio forato, compreso carico e trasporto alle discariche;m²;14,80;78
+1C.01.050.0010;Rimozione di pavimenti in piastrelle, compreso sottofondo fino a 5 cm;m²;12,30;80
+1C.01.090.0010;Rimozione di sanitari e rubinetterie;cad;45,00;90
+1C.02;Scavi;;;
+1C.02.050.0010;Scavo di sbancamento con mezzi meccanici in terreno di qualsiasi natura;m³;6,85;32
+1C.05;Murature e tavolati;;;
+1C.05.100.0010;Tavolato in laterizio forato spessore 8 cm, con malta bastarda;m²;38,20;60
+1C.05.100.0020;Tavolato in laterizio forato spessore 12 cm, con malta bastarda;m²;44,60;58
+1C.07;Intonaci;;;
+1C.07.010.0010;Intonaco civile per interni su pareti e soffitti, rinzaffo, arricciatura e stabilitura;m²;21,40;55
+1C.07.010.0020;Intonaco civile per esterni, rinzaffo, arricciatura e stabilitura;m²;24,90;55
+1C.07.050.0010;Rasatura a gesso su intonaco esistente;m²;11,60;65
+1C.11;Massetti e sottofondi;;;
+1C.11.050.0010;Massetto in sabbia e cemento spessore 5 cm, tirato a frattazzo;m²;17,20;45
+1C.11.050.0020;Sovrapprezzo al massetto per ogni cm in più di spessore;m²;2,90;40
+1C.12;Pavimenti;;;
+1C.12.100.0030;Pavimento in gres porcellanato 30x60 posato a colla, fughe comprese;m²;48,30;38
+1C.12.100.0040;Rivestimento in ceramica 20x20 per bagni e cucine, posato a colla;m²;42,10;40
+1C.12.200.0010;Zoccolino battiscopa in gres h 8 cm;m;9,40;50
+1C.24;Tinteggiature;;;
+1C.24.010.0010;Idropittura lavabile per interni, due mani, su superfici già preparate;m²;7,90;70
+1C.24.010.0020;Pittura traspirante ai silicati per esterni, due mani;m²;13,50;65
+1C.27;Sicurezza;;;
+1C.27.010.0010;Recinzione di cantiere con pannelli metallici su basi in cls, nolo per il primo mese;m;10,00;20

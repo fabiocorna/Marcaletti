@@ -1,0 +1,336 @@
+{
+ "formato": "CRN Computo",
+ "versione": 1,
+ "dati": {
+  "titolo": "Ristrutturazione bagno e soggiorno (esempio)",
+  "committente": "Committente di prova",
+  "comune": "Dalmine (BG)",
+  "indirizzo": "",
+  "progettista": "",
+  "impresa": "",
+  "data": "",
+  "prezzario": "Prezzario di prova",
+  "note": ""
+ },
+ "articoli": [
+  {
+   "codice": "1C.01.050.0010",
+   "descrizione": "Demolizioni e rimozioni – Rimozione di pavimenti in piastrelle, compreso sottofondo fino a 5 cm",
+   "um": "m²",
+   "prezzo": "12.30",
+   "manodopera_pct": "80",
+   "sicurezza": false,
+   "fonte": "Prezzario di prova"
+  },
+  {
+   "codice": "1C.01.090.0010",
+   "descrizione": "Demolizioni e rimozioni – Rimozione di sanitari e rubinetterie",
+   "um": "cad",
+   "prezzo": "45.00",
+   "manodopera_pct": "90",
+   "sicurezza": false,
+   "fonte": "Prezzario di prova"
+  },
+  {
+   "codice": "1C.07.010.0010",
+   "descrizione": "Intonaci – Intonaco civile per interni su pareti e soffitti, rinzaffo, arricciatura e stabilitura",
+   "um": "m²",
+   "prezzo": "21.40",
+   "manodopera_pct": "55",
+   "sicurezza": false,
+   "fonte": "Prezzario di prova"
+  },
+  {
+   "codice": "1C.24.010.0010",
+   "descrizione": "Tinteggiature – Idropittura lavabile per interni, due mani, su superfici già preparate",
+   "um": "m²",
+   "prezzo": "7.90",
+   "manodopera_pct": "70",
+   "sicurezza": false,
+   "fonte": "Prezzario di prova"
+  },
+  {
+   "codice": "1C.11.050.0010",
+   "descrizione": "Massetti e sottofondi – Massetto in sabbia e cemento spessore 5 cm, tirato a frattazzo",
+   "um": "m²",
+   "prezzo": "17.20",
+   "manodopera_pct": "45",
+   "sicurezza": false,
+   "fonte": "Prezzario di prova"
+  },
+  {
+   "codice": "1C.12.100.0030",
+   "descrizione": "Pavimenti – Pavimento in gres porcellanato 30x60 posato a colla, fughe comprese",
+   "um": "m²",
+   "prezzo": "48.30",
+   "manodopera_pct": "38",
+   "sicurezza": false,
+   "fonte": "Prezzario di prova"
+  },
+  {
+   "codice": "1C.12.100.0040",
+   "descrizione": "Pavimenti – Rivestimento in ceramica 20x20 per bagni e cucine, posato a colla",
+   "um": "m²",
+   "prezzo": "42.10",
+   "manodopera_pct": "40",
+   "sicurezza": false,
+   "fonte": "Prezzario di prova"
+  },
+  {
+   "codice": "1C.27.010.0010",
+   "descrizione": "Sicurezza – Recinzione di cantiere con pannelli metallici su basi in cls, nolo per il primo mese",
+   "um": "m",
+   "prezzo": "10.00",
+   "manodopera_pct": "20",
+   "sicurezza": true,
+   "fonte": "Prezzario di prova"
+  }
+ ],
+ "capitoli": [
+  {
+   "id": 1,
+   "titolo": "Demolizioni",
+   "codice": "A",
+   "parent": null
+  },
+  {
+   "id": 2,
+   "titolo": "Opere edili",
+   "codice": "B",
+   "parent": null
+  },
+  {
+   "id": 3,
+   "titolo": "Intonaci e tinteggiature",
+   "codice": "B.1",
+   "parent": 2
+  },
+  {
+   "id": 4,
+   "titolo": "Pavimenti e rivestimenti",
+   "codice": "B.2",
+   "parent": 2
+  },
+  {
+   "id": 5,
+   "titolo": "Sicurezza",
+   "codice": "S",
+   "parent": null
+  }
+ ],
+ "voci": [
+  {
+   "id": 6,
+   "capitolo": 1,
+   "articolo": "1C.01.050.0010",
+   "misure": [
+    {
+     "descrizione": "Bagno",
+     "parti": "",
+     "lunghezza": "2,40",
+     "larghezza": "1,80",
+     "altezza": "",
+     "deduzione": false
+    },
+    {
+     "descrizione": "Soggiorno",
+     "parti": "",
+     "lunghezza": "5,20",
+     "larghezza": "4,10",
+     "altezza": "",
+     "deduzione": false
+    }
+   ],
+   "nota": ""
+  },
+  {
+   "id": 7,
+   "capitolo": 1,
+   "articolo": "1C.01.090.0010",
+   "misure": [
+    {
+     "descrizione": "Vaso, bidet, lavabo, vasca",
+     "parti": "4",
+     "lunghezza": "",
+     "larghezza": "",
+     "altezza": "",
+     "deduzione": false
+    }
+   ],
+   "nota": ""
+  },
+  {
+   "id": 8,
+   "capitolo": 3,
+   "articolo": "1C.07.010.0010",
+   "misure": [
+    {
+     "descrizione": "Soggiorno – pareti lunghe",
+     "parti": "2",
+     "lunghezza": "5,20",
+     "larghezza": "",
+     "altezza": "2,70",
+     "deduzione": false
+    },
+    {
+     "descrizione": "Soggiorno – pareti corte",
+     "parti": "2",
+     "lunghezza": "4,10",
+     "larghezza": "",
+     "altezza": "2,70",
+     "deduzione": false
+    },
+    {
+     "descrizione": "Porta",
+     "parti": "1",
+     "lunghezza": "0,90",
+     "larghezza": "",
+     "altezza": "2,10",
+     "deduzione": true
+    },
+    {
+     "descrizione": "Finestre F1-F2",
+     "parti": "2",
+     "lunghezza": "1,20",
+     "larghezza": "",
+     "altezza": "1,40",
+     "deduzione": true
+    }
+   ],
+   "nota": ""
+  },
+  {
+   "id": 9,
+   "capitolo": 3,
+   "articolo": "1C.24.010.0010",
+   "misure": [
+    {
+     "descrizione": "Pareti soggiorno (come intonaco)",
+     "parti": "",
+     "lunghezza": "44,97",
+     "larghezza": "",
+     "altezza": "",
+     "deduzione": false
+    },
+    {
+     "descrizione": "Soffitto soggiorno",
+     "parti": "",
+     "lunghezza": "5,20",
+     "larghezza": "4,10",
+     "altezza": "",
+     "deduzione": false
+    }
+   ],
+   "nota": ""
+  },
+  {
+   "id": 10,
+   "capitolo": 4,
+   "articolo": "1C.11.050.0010",
+   "misure": [
+    {
+     "descrizione": "Bagno",
+     "parti": "",
+     "lunghezza": "2,40",
+     "larghezza": "1,80",
+     "altezza": "",
+     "deduzione": false
+    },
+    {
+     "descrizione": "Soggiorno",
+     "parti": "",
+     "lunghezza": "5,20",
+     "larghezza": "4,10",
+     "altezza": "",
+     "deduzione": false
+    }
+   ],
+   "nota": ""
+  },
+  {
+   "id": 11,
+   "capitolo": 4,
+   "articolo": "1C.12.100.0030",
+   "misure": [
+    {
+     "descrizione": "Bagno",
+     "parti": "",
+     "lunghezza": "2,40",
+     "larghezza": "1,80",
+     "altezza": "",
+     "deduzione": false
+    },
+    {
+     "descrizione": "Soggiorno",
+     "parti": "",
+     "lunghezza": "5,20",
+     "larghezza": "4,10",
+     "altezza": "",
+     "deduzione": false
+    }
+   ],
+   "nota": ""
+  },
+  {
+   "id": 12,
+   "capitolo": 4,
+   "articolo": "1C.12.100.0040",
+   "misure": [
+    {
+     "descrizione": "Bagno – pareti",
+     "parti": "2",
+     "lunghezza": "2,40+1,80",
+     "larghezza": "",
+     "altezza": "2,20",
+     "deduzione": false
+    },
+    {
+     "descrizione": "Porta bagno",
+     "parti": "1",
+     "lunghezza": "0,80",
+     "larghezza": "",
+     "altezza": "2,10",
+     "deduzione": true
+    }
+   ],
+   "nota": ""
+  },
+  {
+   "id": 13,
+   "capitolo": 5,
+   "articolo": "1C.27.010.0010",
+   "misure": [
+    {
+     "descrizione": "Fronte strada",
+     "parti": "",
+     "lunghezza": "15",
+     "larghezza": "",
+     "altezza": "",
+     "deduzione": false
+    }
+   ],
+   "nota": ""
+  }
+ ],
+ "quadro": {
+  "sicurezza_modo": "voci",
+  "sicurezza_valore": "0",
+  "ribasso_pct": "0",
+  "iva_lavori_pct": "10",
+  "somme": [
+   {
+    "descrizione": "Spese tecniche",
+    "modo": "percentuale",
+    "valore": "10",
+    "iva_pct": "22"
+   },
+   {
+    "descrizione": "Imprevisti",
+    "modo": "percentuale",
+    "valore": "5",
+    "iva_pct": "0"
+   }
+  ]
+ },
+ "next_id": 14
+}

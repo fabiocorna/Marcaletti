@@ -47,6 +47,19 @@ Scritto in Python con Qt (PySide6), come CRN PDF Studio.
 - Serve una chiave API di Anthropic (pulsante ⚙ nel pannello); se è già inserita in CRN PDF Studio
   viene usata anche qui
 
+## Come provarlo
+
+Nella cartella `demo/` ci sono:
+- `prezzario_prova.csv`: un piccolo prezzario d'esempio (17 voci, prezzi indicativi, non ufficiali)
+- `esempio.crcm`: un progetto già impostato (bagno e soggiorno, 5 capitoli, 8 voci)
+
+1. *File → Apri* → `demo/esempio.crcm`: controlla capitoli, voci, misure e il quadro economico
+2. *Prezzari → Importa prezzario* → `demo/prezzario_prova.csv`; cerca «gres» nel pannello Prezzari e
+   fai doppio clic per inserire una voce; scrivi le misure (anche formule come `2*(3,5+4)`)
+3. *File → Esporta*: computo in PDF, elenco prezzi, quadro economico, Excel
+4. Pannello *Assistente Claude* (Ctrl+K) → ⚙ per la chiave API, poi ad esempio «Controlla il computo» o
+   «Aggiungi la tinteggiatura del bagno: pareti 2,40 × 1,80 h 2,70, con porta 80×210»
+
 ## File
 
 - Progetti: `.crcm` (JSON leggibile, salvato in modo sicuro con un file temporaneo)
