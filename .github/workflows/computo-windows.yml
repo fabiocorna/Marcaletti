@@ -47,9 +47,12 @@ jobs:
         run: |
           $out = "$env:RUNNER_TEMP\selftest_computo.txt"
           $p = Start-Process -FilePath dist\CRNComputo\CRNComputo.exe -ArgumentList "--selftest", "`"$out`"" -PassThru
+          $null = $p.Handle   # senza questo ExitCode resta vuoto se il processo termina in fretta
           if (-not $p.WaitForExit(180000)) { $p.Kill(); throw "Collaudo bloccato (finestra di errore?)" }
-          Get-Content $out
-          if ($p.ExitCode -ne 0) { throw "Collaudo dell'eseguibile non riuscito" }
+          $p.WaitForExit()
+          $report = Get-Content $out -Raw
+          $report
+          if ($p.ExitCode -ne 0 -or $report -notmatch "ESITO: OK") { throw "Collaudo dell'eseguibile non riuscito (codice $($p.ExitCode))" }
 
       - name: Pacchetto portabile
         run: |
