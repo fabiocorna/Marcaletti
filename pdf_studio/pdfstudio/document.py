@@ -87,6 +87,7 @@ class PdfDocument:
     """Documento PDF aperto nell'editor, con annulla/ripeti."""
 
     MAX_UNDO = 30
+    MAX_UNDO_BYTES = 400 * 1024 * 1024  # memoria massima per annulla/ripeti
 
     def __init__(self, doc: pymupdf.Document, path: str | None = None):
         self.doc = doc
@@ -190,6 +191,9 @@ class PdfDocument:
         """Salva lo stato corrente prima di una modifica."""
         self._undo.append(self.doc.tobytes())
         if len(self._undo) > self.MAX_UNDO:
+            self._undo.pop(0)
+        # Sui PDF molto grandi si tengono meno passaggi, ma almeno l'ultimo
+        while len(self._undo) > 1 and sum(map(len, self._undo)) > self.MAX_UNDO_BYTES:
             self._undo.pop(0)
         self._redo.clear()
         self.modified = True
@@ -560,9 +564,7 @@ class PdfDocument:
 
     def find_replace(self, query: str, replacement: str, pages=None, match_case: bool = True) -> int:
         from . import textedit
-        hits = sum(len(self.doc[p].search_for(query)) for p in (pages if pages is not None
-                                                                   else range(self.page_count)))
-        if not hits:
+        if not textedit.count_matches(self.doc, query, pages, match_case):
             return 0
         self.checkpoint()
         return textedit.find_replace(self.doc, query, replacement, pages, match_case)

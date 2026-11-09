@@ -1,12 +1,22 @@
-## CRN PDF Studio 1.5.0
+## CRN PDF Studio 1.5.1
 
 Lettore ed editor PDF per Windows.
 
 ### Download
-- **CRNPDFStudio-Setup-1.5.0.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
-- **CRNPDFStudio-portabile-1.5.0.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
+- **CRNPDFStudio-Setup-1.5.1.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
+- **CRNPDFStudio-portabile-1.5.1.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
 
 Al primo avvio Windows può mostrare «Windows ha protetto il PC» (programma senza firma digitale): *Ulteriori informazioni → Esegui comunque*.
+
+### Correzioni della 1.5.1 (revisione del codice)
+- Salvando (Ctrl+S), stampando o esportando mentre si scrive in un campo del modulo o in un paragrafo, l'ultimo testo digitato ora viene sempre incluso.
+- Stampante «CRN PDF»: niente più copie doppie nella cartella Stampe quando Windows tiene ancora bloccato il file.
+- Doppio clic su un'evidenziazione o un commento: apre di nuovo il testo del commento.
+- Esc annulla la compilazione di un campo e la selezione del testo.
+- Annulla/Ripeti usa al massimo circa 400 MB di memoria anche con PDF molto grandi.
+- Selezione del testo più rapida sulle pagine con molto testo (tavole, tabelle).
+- Aprire molti file insieme da Esplora risorse con il programma già aperto funziona sempre.
+- Trova e sostituisci con «maiuscole/minuscole» non segna più il documento come modificato se non sostituisce nulla.
 
 ### Novità della 1.5
 - **Selezione e copia del testo come in Acrobat**: con lo strumento Mano basta trascinare sul testo (il cursore diventa una «I»); doppio clic seleziona una parola, triplo clic la riga, **Ctrl+A** tutto il testo della pagina, **Ctrl+C** copia. Il testo copiato mantiene i paragrafi interi, pronto da incollare in Word.

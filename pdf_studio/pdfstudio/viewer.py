@@ -510,6 +510,15 @@ class PageView(QGraphicsView):
             self.set_selection(idx, *rng)
 
     # ------------------------------------------------------- moduli compilabili
+    @property
+    def field_editing(self) -> bool:
+        return self._field_editor is not None
+
+    def commit_pending(self) -> None:
+        """Conferma le modifiche ancora aperte (campo del modulo o paragrafo)."""
+        self.close_field_editor(commit=True)
+        self.commit_inline_edit()
+
     def refresh_fields(self) -> None:
         self._fields = self.document.form_fields() if self.document else []
 
@@ -907,6 +916,15 @@ class PageView(QGraphicsView):
     def mouseDoubleClickEvent(self, event) -> None:
         if self.document and self.tool in (HAND, SELECT) and event.button() == Qt.LeftButton:
             sp = self.mapToScene(event.position().toPoint())
+            idx = self._page_at(sp)
+            if idx >= 0 and self.tool == HAND:
+                # Su un commento (evidenziazione, nota…) il doppio clic ne modifica il testo
+                annot = self.document.annotation_at(idx, self._scene_to_doc(idx, sp))
+                if annot is not None:
+                    self.clear_selection()
+                    self._sel_drag = None
+                    self.toolAction.emit("edit_annot", idx, annot)
+                    return
             if self.field_at(sp) is None and self._over_text(sp):
                 hit = self._text_hit(sp, nearest=False)
                 if hit is not None:

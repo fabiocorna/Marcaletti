@@ -85,6 +85,12 @@ def collect(port: str, out_folder: str) -> str | None:
         except OSError:
             if os.path.exists(dest) and not os.path.exists(port):
                 return dest
+            # Il file è ancora bloccato: si elimina la copia e si riprova al prossimo controllo,
+            # altrimenti a ogni tentativo resterebbe una copia in più nella cartella delle stampe
+            try:
+                os.remove(dest)
+            except OSError:
+                pass
             return None
     return dest
 

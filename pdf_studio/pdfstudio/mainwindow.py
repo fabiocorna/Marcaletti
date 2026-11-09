@@ -697,6 +697,7 @@ class MainWindow(QMainWindow):
             self._error("Errore", exc)
 
     def merge_dialog(self) -> None:
+        self._commit_edits()
         initial = []
         d = self.doc()
         if d and d.path and not d.modified:
@@ -716,6 +717,7 @@ class MainWindow(QMainWindow):
         self.open_file(out)
 
     def save(self) -> bool:
+        self._commit_edits()
         d = self._require_doc()
         if not d:
             return False
@@ -735,6 +737,7 @@ class MainWindow(QMainWindow):
         return True
 
     def save_as(self) -> bool:
+        self._commit_edits()
         d = self._require_doc()
         if not d:
             return False
@@ -796,6 +799,7 @@ class MainWindow(QMainWindow):
         return True
 
     def compress(self) -> None:
+        self._commit_edits()
         d = self._require_doc()
         if not d:
             return
@@ -821,6 +825,7 @@ class MainWindow(QMainWindow):
                                 f"Nuova dimensione: {after / 1024:.0f} KB\nRiduzione: {perc:.0f}%")
 
     def export_images(self) -> None:
+        self._commit_edits()
         d = self._require_doc()
         if not d:
             return
@@ -840,6 +845,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Esportate {len(paths)} immagini in {folder}", 5000)
 
     def export_text(self) -> None:
+        self._commit_edits()
         d = self._require_doc()
         if not d:
             return
@@ -850,6 +856,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Testo esportato in {out}", 5000)
 
     def export_docx(self) -> None:
+        self._commit_edits()
         d = self._require_doc()
         if not d:
             return
@@ -868,6 +875,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Creato {out}", 5000)
 
     def export_dxf(self) -> None:
+        self._commit_edits()
         d = self._require_doc()
         if not d:
             return
@@ -913,6 +921,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Esporta in DXF", text)
 
     def print_document(self) -> None:
+        self._commit_edits()
         d = self._require_doc()
         if not d:
             return
@@ -1010,6 +1019,7 @@ class MainWindow(QMainWindow):
 
     # ================================================================== chiusura
     def _confirm_close(self, t: DocumentTab) -> bool:
+        t.view.commit_pending()
         if not t.document.modified:
             return True
         self.tabs.setCurrentWidget(t)
@@ -1316,6 +1326,7 @@ class MainWindow(QMainWindow):
             self._changed()
 
     def extract_pages(self) -> None:
+        self._commit_edits()
         d = self._require_doc()
         if not d:
             return
@@ -1339,6 +1350,7 @@ class MainWindow(QMainWindow):
                 self.open_file(out)
 
     def split_document(self) -> None:
+        self._commit_edits()
         d = self._require_doc()
         if not d:
             return
@@ -1594,10 +1606,23 @@ class MainWindow(QMainWindow):
             self._changed(full=False, page=page)
 
     # =========================================================== testo e PDF/A
+    def _commit_edits(self) -> None:
+        """Registra nel documento il campo o il paragrafo che si sta ancora modificando."""
+        t = self.tab()
+        if t:
+            t.view.commit_pending()
+
     def _escape(self) -> None:
+        # Esc è una scorciatoia della finestra: arriva qui anche mentre si scrive in un campo
         t = self.tab()
         if t and t.view.inline_editing:
             t.view.cancel_inline_edit()
+            return
+        if t and t.view.field_editing:
+            t.view.close_field_editor(commit=False)
+            return
+        if t and t.view.has_selection:
+            t.view.clear_selection()
             return
         self.set_tool(V.HAND)
 
@@ -1644,6 +1669,7 @@ class MainWindow(QMainWindow):
                                 f"Sostituzioni effettuate: {n}" if n else "Testo non trovato.")
 
     def save_pdfa(self) -> None:
+        self._commit_edits()
         d = self._require_doc()
         if not d:
             return

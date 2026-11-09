@@ -123,10 +123,17 @@ def main() -> int:
 
     def on_connection():
         sock = server.nextPendingConnection()
+        buf = bytearray()
 
         def read():
+            buf.extend(bytes(sock.readAll()))
+
+        def done():
+            # Il messaggio può arrivare in più pezzi: si interpreta solo a connessione chiusa
+            read()
+            sock.deleteLater()
             try:
-                msg = json.loads(bytes(sock.readAll()).decode("utf-8") or "{}")
+                msg = json.loads(bytes(buf).decode("utf-8") or "{}")
             except ValueError:
                 return
             for path in msg.get("files", []):
@@ -134,7 +141,7 @@ def main() -> int:
             if msg.get("show", True) or msg.get("files"):
                 win.bring_to_front()
         sock.readyRead.connect(read)
-        sock.disconnected.connect(sock.deleteLater)
+        sock.disconnected.connect(done)
 
     server.newConnection.connect(on_connection)
 

@@ -353,25 +353,40 @@ def replace_line_span(doc: pymupdf.Document, page_no: int, bbox: pymupdf.Rect, o
     return choice
 
 
+def _match_spans(doc: pymupdf.Document, pno: int, pattern) -> list[dict]:
+    page = doc[pno]
+    spans = []
+    for b in page.get_text("dict", flags=pymupdf.TEXTFLAGS_TEXT)["blocks"]:
+        for ln in b.get("lines", []):
+            if abs(ln["dir"][1]) > 0.01:
+                continue
+            spans.extend(s for s in ln["spans"] if pattern.search(s["text"]))
+    return spans
+
+
+def _pattern(query: str, match_case: bool):
+    return re.compile(re.escape(query), 0 if match_case else re.IGNORECASE)
+
+
+def count_matches(doc: pymupdf.Document, query: str, pages=None, match_case: bool = True) -> int:
+    """Occorrenze che find_replace sostituirebbe (stessi criteri)."""
+    if not query:
+        return 0
+    pattern = _pattern(query, match_case)
+    return sum(len(pattern.findall(s["text"]))
+               for pno in (pages if pages is not None else range(doc.page_count))
+               for s in _match_spans(doc, pno, pattern))
+
+
 def find_replace(doc: pymupdf.Document, query: str, replacement: str, pages=None,
                  match_case: bool = True) -> int:
     """Sostituisce ogni occorrenza riscrivendo lo span che la contiene. Ritorna le sostituzioni."""
     if not query:
         return 0
     count = 0
-    flags_re = 0 if match_case else re.IGNORECASE
-    pattern = re.compile(re.escape(query), flags_re)
+    pattern = _pattern(query, match_case)
     for pno in (pages if pages is not None else range(doc.page_count)):
-        page = doc[pno]
-        targets = []
-        for b in page.get_text("dict", flags=pymupdf.TEXTFLAGS_TEXT)["blocks"]:
-            for ln in b.get("lines", []):
-                if abs(ln["dir"][1]) > 0.01:
-                    continue
-                for s in ln["spans"]:
-                    if pattern.search(s["text"]):
-                        targets.append(s)
-        for s in targets:
+        for s in _match_spans(doc, pno, pattern):
             new, n = pattern.subn(lambda _m: replacement, s["text"])
             if not n:
                 continue

@@ -23,11 +23,13 @@ class PageText:
     def __init__(self, page: pymupdf.Page):
         self.chars: list[Char] = []
         self.line_rects: dict[int, pymupdf.Rect] = {}
+        self.line_range: dict[int, tuple[int, int]] = {}  # riga → (primo, ultimo carattere)
         line_no = 0
         raw = page.get_text("rawdict", flags=pymupdf.TEXTFLAGS_TEXT | pymupdf.TEXT_PRESERVE_WHITESPACE)
         for b_no, block in enumerate(raw["blocks"]):
             for line in block.get("lines", []):
                 added = False
+                first = len(self.chars)
                 for span in line["spans"]:
                     for ch in span["chars"]:
                         r = pymupdf.Rect(ch["bbox"])
@@ -37,6 +39,7 @@ class PageText:
                         added = True
                 if added:
                     self.line_rects[line_no] = pymupdf.Rect(line["bbox"])
+                    self.line_range[line_no] = (first, len(self.chars) - 1)
                     line_no += 1
 
     @property
@@ -47,8 +50,13 @@ class PageText:
     def char_at(self, pt: pymupdf.Point, tolerance: float = 2.0) -> int | None:
         """Carattere sotto il punto (con piccola tolleranza), altrimenti None."""
         best, best_d = None, tolerance
-        for i, ch in enumerate(self.chars):
-            r = ch.bbox
+        # Si esaminano solo i caratteri delle righe vicine al punto (pagine con molto testo)
+        candidates = (i for n, lr in self.line_rects.items()
+                      if lr.y0 - tolerance <= pt.y <= lr.y1 + tolerance
+                      and lr.x0 - tolerance <= pt.x <= lr.x1 + tolerance
+                      for i in range(self.line_range[n][0], self.line_range[n][1] + 1))
+        for i in candidates:
+            r = self.chars[i].bbox
             dx = max(r.x0 - pt.x, 0, pt.x - r.x1)
             dy = max(r.y0 - pt.y, 0, pt.y - r.y1)
             d = max(dx, dy)
@@ -68,8 +76,8 @@ class PageText:
         line = min(self.line_rects, key=lambda n: (vdist(self.line_rects[n]),
                                                    abs((self.line_rects[n].x0 + self.line_rects[n].x1) / 2
                                                        - pt.x)))
-        idx = [i for i, ch in enumerate(self.chars) if ch.line == line]
-        i = min(idx, key=lambda k: abs((self.chars[k].bbox.x0 + self.chars[k].bbox.x1) / 2 - pt.x))
+        a, b = self.line_range[line]
+        i = min(range(a, b + 1), key=lambda k: abs((self.chars[k].bbox.x0 + self.chars[k].bbox.x1) / 2 - pt.x))
         # Oltre la metà del carattere: la selezione lo include
         return i
 
@@ -132,9 +140,7 @@ class PageText:
         return a, b
 
     def line_at(self, i: int) -> tuple[int, int]:
-        line = self.chars[i].line
-        idx = [k for k, ch in enumerate(self.chars) if ch.line == line]
-        return idx[0], idx[-1]
+        return self.line_range[self.chars[i].line]
 
     def all(self) -> tuple[int, int] | None:
         return (0, len(self.chars) - 1) if self.chars else None
