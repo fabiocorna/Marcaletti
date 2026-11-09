@@ -1344,6 +1344,7 @@ class MainWindow(QMainWindow):
             return
         self.settings.setValue("window/geometry", self.saveGeometry())
         self.settings.setValue("window/state", self.saveState())
+        self.settings.sync()
         ev.accept()
 
 

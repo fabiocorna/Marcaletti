@@ -69,6 +69,7 @@ def selftest(report_path: str) -> int:
         step(traceback.format_exc())
         step("ESITO: ERRORE")
         code = 1
+    faulthandler.disable()
     log.close()
     _hard_exit(code)
 
@@ -80,8 +81,13 @@ def _hard_exit(code: int) -> None:
     sys.stderr.flush()
     if sys.platform == "win32":
         import ctypes
+        from ctypes import wintypes
         k = ctypes.windll.kernel32
-        k.TerminateProcess(k.GetCurrentProcess(), code)
+        # tipi espliciti: senza, l'handle a 64 bit viene troncato e la chiamata fallisce
+        k.GetCurrentProcess.restype = wintypes.HANDLE
+        k.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        k.TerminateProcess.restype = wintypes.BOOL
+        k.TerminateProcess(k.GetCurrentProcess(), code & 0xFFFFFFFF)
     os._exit(code)
 
 
@@ -109,7 +115,12 @@ def main() -> int:
     files = [a for a in sys.argv[1:] if not a.startswith("--")]
     if files:
         win.open_project(os.path.abspath(files[0]))
-    return app.exec()
+    code = app.exec()
+    # Impostazioni già salvate in closeEvent: si esce senza lo smontaggio di Qt, che su
+    # Windows può terminare con un crash e il messaggio «il programma ha smesso di funzionare».
+    win.settings.sync()
+    _hard_exit(code)
+    return code
 
 
 if __name__ == "__main__":
