@@ -7,18 +7,28 @@ import sys
 import traceback
 
 
-class _Stop(Exception):
-    pass
+def _shutdown(app, win, code: int) -> None:
+    """Chiusura ordinata: prima la finestra, poi l'applicazione Qt, poi il processo.
+
+    Su Windows uscire con la finestra Qt ancora viva fa andare in crash lo scarico delle
+    librerie (0xC0000005, «il programma ha smesso di funzionare»): distruggerle prima
+    lo evita. Le impostazioni sono già salvate alla chiusura della finestra."""
+    import shiboken6
+    if win is not None and shiboken6.isValid(win):
+        win.close()
+        shiboken6.delete(win)
+    if app is not None and shiboken6.isValid(app):
+        app.processEvents()
+        app.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
 
 
-def selftest(report_path: str, fase: int = 99, uscita: str = "terminate") -> int:
+def selftest(report_path: str) -> None:
     """Carica tutti i moduli, crea un progetto con una voce, lo salva, lo riapre e
     produce le stampe. Scrive l'avanzamento in ``report_path`` passo per passo, così
-    un blocco o un crash indicano dove sono avvenuti.
-
-    Per la diagnosi su Windows: ``--fase N`` si ferma dopo la fase N (1 Qt, 2 moduli del
-    programma, 3 QApplication, 4 finestra) e ``--uscita terminate|exit|normale`` sceglie
-    come terminare il processo."""
+    un blocco o un crash indicano dove sono avvenuti."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     log = open(report_path, "w", encoding="utf-8", buffering=1)
     import faulthandler
@@ -28,12 +38,10 @@ def selftest(report_path: str, fase: int = 99, uscita: str = "terminate") -> int
         # niente finestra «il programma ha smesso di funzionare»: il collaudo non si blocca
         ctypes.windll.kernel32.SetErrorMode(0x0001 | 0x0002 | 0x8000)
 
-    def step(text, n=None):
+    def step(text):
         log.write(text + "\n")
         log.flush()
         os.fsync(log.fileno())
-        if n is not None and n >= fase:
-            raise _Stop
 
     app = win = None
     try:
@@ -41,58 +49,18 @@ def selftest(report_path: str, fase: int = 99, uscita: str = "terminate") -> int
         from decimal import Decimal
 
         from PySide6.QtWidgets import QApplication
-        step("Qt caricato", 1)
 
         from crncomputo import assistant, export
         from crncomputo.mainwindow import MainWindow
         from crncomputo.model import Articolo, Misura
-        step("moduli caricati", 2)
+        step("moduli caricati")
 
         app = QApplication(sys.argv[:1])
         app.setOrganizationName("CRN")
         app.setApplicationName("CRN Computo Selftest")
-        step("QApplication creata", 3)
-        if fase in (31, 32):
-            # diagnosi: solo il Gestore credenziali, oppure solo il pannello dell'assistente
-            from PySide6.QtCore import QSettings
-            if fase == 31:
-                import keyring
-                keyring.get_password("CRNComputo-Claude", "api_key")
-                step("keyring letto", 31)
-            from crncomputo.assistant_panel import AssistantPanel
-            panel = AssistantPanel(QSettings(), lambda: None, lambda: [])
-            step("pannello assistente creato", 32)
         tmp = tempfile.mkdtemp(prefix="crncomputo_selftest_")
-        if fase == 41:
-            # diagnosi: finestra completa senza leggere il Gestore credenziali
-            import crncomputo.assistant_panel as AP
-            AP.load_api_key = lambda settings: ""
-        if fase in (42, 43, 44, 45):
-            # diagnosi: solo una parte della finestra principale
-            from PySide6.QtCore import QSettings
-            from PySide6.QtWidgets import QMainWindow
-            import crncomputo.mainwindow as MW
-            part = MW.MainWindow.__new__(MW.MainWindow)
-            QMainWindow.__init__(part)
-            part.settings = QSettings()
-            part.doc = part._new_doc()
-            part.sel_cap, part.sel_voce, part._updating, part._prezzari = MW.CAP_ALL, None, False, None
-            part.libreria = MW.Libreria(os.path.join(tmp, "lib"))
-            if fase == 42:
-                part.setCentralWidget(part._build_computo())
-            elif fase == 43:
-                for b in (part._build_elenco, part._build_quadro, part._build_dati):
-                    b()
-            elif fase == 44:
-                part._build_prezzari_dock()
-            else:
-                part.assistant = MW.AssistantPanel(part.settings, lambda: part.doc, lambda: [])
-                part._build_menus()
-            win = part
-            step(f"parte {fase} creata", fase)
         win = MainWindow()
-        step("finestra creata" + (" (senza keyring)" if fase == 41 else ""), 41)
-        step("finestra creata", 4)
+        step("finestra creata")
         d = win.doc
         d.set_articolo(Articolo("A.01", "Intonaco civile", "m²", Decimal("20")))
         cap = d.add_capitolo("Finiture")
@@ -109,61 +77,21 @@ def selftest(report_path: str, fase: int = 99, uscita: str = "terminate") -> int
         step("stampe PDF ed Excel")
         assert assistant.validate_input("leggi_progetto", {}) is None
         win.doc.modified = False
-        win.close()
-        step("finestra chiusa")
-        win.deleteLater()
-        app.processEvents()
-        step("finestra distrutta")
         step("ESITO: OK")
-        code = 0
-    except _Stop:
-        step(f"ESITO: OK (fermato alla fase {fase})")
         code = 0
     except Exception:
         step(traceback.format_exc())
         step("ESITO: ERRORE")
         code = 1
-    step(f"uscita: {uscita}")
-    if uscita == "distruggi":
-        # distrugge esplicitamente finestra e applicazione prima di uscire
-        import shiboken6
-        if win is not None and shiboken6.isValid(win):
-            win.close()
-            shiboken6.delete(win)
-        if app is not None:
-            app.processEvents()
-            shut = getattr(app, "shutdown", None)
-            if shut:
-                shut()
-            elif shiboken6.isValid(app):
-                shiboken6.delete(app)
-        step("finestra e applicazione distrutte")
-        os._exit(code)
-    if uscita == "normale":
-        faulthandler.disable()
-        log.close()
-        return code
-    if uscita == "exit":
-        os._exit(code)
     faulthandler.disable()
     log.close()
-    _hard_exit(code)
-    return code
-
-
-def _hard_exit(code: int) -> None:
-    """Esce senza lo smontaggio di Python e Qt (le impostazioni sono già salvate)."""
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os._exit(code)
+    _shutdown(app, win, code)
 
 
 def main() -> int:
     if "--selftest" in sys.argv:
-        def arg(name, default):
-            return sys.argv[sys.argv.index(name) + 1] if name in sys.argv[:-1] else default
-        return selftest(arg("--selftest", "selftest.txt"), int(arg("--fase", "99")),
-                        arg("--uscita", "terminate"))
+        i = sys.argv.index("--selftest")
+        selftest(sys.argv[i + 1] if len(sys.argv) > i + 1 else "selftest.txt")
     if sys.platform == "win32":
         try:
             import ctypes
@@ -185,10 +113,8 @@ def main() -> int:
     if files:
         win.open_project(os.path.abspath(files[0]))
     code = app.exec()
-    # Impostazioni già salvate in closeEvent: si esce senza lo smontaggio di Qt, che su
-    # Windows può terminare con un crash e il messaggio «il programma ha smesso di funzionare».
     win.settings.sync()
-    _hard_exit(code)
+    _shutdown(app, win, code)
     return code
 
 
