@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import re
 import struct
 import sys
 import zlib
@@ -34,6 +35,9 @@ __all__ = ["Entita", "Testo", "Disegno", "Layer", "leggi_disegno", "scrivi_dxf",
 #   0 tabelle (penne/stili), 1 tipi linea, 2 ENTITA', 3 dizionario proprieta',
 #   4 blocchi/simboli (se presenti), ultimo <Footer> XML.
 FRAME_ENTITA = 2
+# I dati lunghi vengono spezzati in piu' frame: ogni frame di esattamente
+# 10.000.000 byte decompressi continua nel successivo.
+_PEZZO_FRAME = 10_000_000
 
 # Record entita': 16 tag fissi (u16 tag + valore), tag opzionali fino a 0xFFFF,
 # poi t11 coppie (u32, u32) di proprieta', poi t13 byte di geometria.
@@ -85,6 +89,9 @@ class Entita:
     opzionali: dict[int, bytes]
     proprieta: list[tuple[int, int]]
     geometria: bytes
+    # Dati dopo la geometria che la lunghezza del record non dichiara (es. retini
+    # sfumati: ~1 milione di elementi da 32 byte). Ritrovati cercando il record seguente.
+    extra: bytes = b""
 
     @property
     def layer(self) -> int:
@@ -183,39 +190,86 @@ def _frame(d: bytes, inizio: int) -> list[bytes]:
     return out
 
 
-def leggi_entita(blocco: bytes, con_tag: bool = True) -> list[Entita]:
-    out, p = [], 0
-    fissi = _TAG_FISSI if con_tag else _TAG_FISSI[:15]
-    while p < len(blocco):
-        s, campi, guid = p, {}, b""
-        for tag, dim in enumerate(fissi):
-            if con_tag:
-                (t,) = struct.unpack_from("<H", blocco, p)
-                if t != tag:
-                    raise ValueError(f"record @{s:#x}: atteso tag {tag}, trovato {t:#x}")
-                p += 2
-            if tag == 15:
-                guid = blocco[p : p + dim]
-            else:
-                campi[tag] = int.from_bytes(blocco[p : p + dim], "little", signed=True)
-            p += dim
-        opz = {}
-        while con_tag:
-            (t,) = struct.unpack_from("<H", blocco, p)
-            p += 2
-            if t == _FINE_TAG:
-                break
-            if t not in _TAG_OPZIONALI:
-                raise ValueError(f"record @{s:#x}: tag opzionale sconosciuto {t:#x}")
-            opz[t] = blocco[p : p + _TAG_OPZIONALI[t]]
-            p += _TAG_OPZIONALI[t]
-        n_prop = campi[11]
-        prop = [struct.unpack_from("<II", blocco, p + 8 * k) for k in range(n_prop)]
-        p += 8 * n_prop
-        geo = blocco[p : p + campi[13]]
-        p += campi[13]
-        out.append(Entita(s, campi[1], campi[4], campi, guid, opz, prop, geo))
+def _unisci_frame(frame: list[bytes]) -> list[bytes]:
+    out: list[bytes] = []
+    continua = False
+    for f in frame:
+        if continua:
+            out[-1] += f
+        else:
+            out.append(f)
+        continua = len(f) == _PEZZO_FRAME
     return out
+
+
+# Inizio di un record a tag: 00 00 .. .. 01 00 .. .. 02 00 .. .. 03 00 (4 byte) 04 00 (4 byte) 05 00
+_INIZIO_RECORD = re.compile(rb"\x00\x00..\x01\x00..\x02\x00..\x03\x00....\x04\x00....\x05\x00", re.S)
+
+
+def _cerca_record(blocco: bytes, da: int) -> int | None:
+    """Prossimo offset da cui si leggono due record validi di fila (o uno fino alla fine)."""
+    for m in _INIZIO_RECORD.finditer(blocco, da):
+        q = m.start()
+        try:
+            _, r = _leggi_record(blocco, q, True)
+            if r < len(blocco):
+                _leggi_record(blocco, r, True)
+        except (ValueError, struct.error):
+            continue
+        return q
+    return None
+
+
+def leggi_entita(blocco: bytes, con_tag: bool = True) -> list[Entita]:
+    out: list[Entita] = []
+    p = 0
+    while p < len(blocco):
+        try:
+            e, p_nuovo = _leggi_record(blocco, p, con_tag)
+        except (ValueError, struct.error):
+            q = _cerca_record(blocco, p + 1) if (con_tag and out) else None
+            if q is None:
+                raise
+            out[-1].extra = blocco[p:q]
+            p = q
+            continue
+        out.append(e)
+        p = p_nuovo
+    return out
+
+
+def _leggi_record(blocco: bytes, p: int, con_tag: bool) -> tuple[Entita, int]:
+    fissi = _TAG_FISSI if con_tag else _TAG_FISSI[:15]
+    s, campi, guid = p, {}, b""
+    for tag, dim in enumerate(fissi):
+        if con_tag:
+            (t,) = struct.unpack_from("<H", blocco, p)
+            if t != tag:
+                raise ValueError(f"record @{s:#x}: atteso tag {tag}, trovato {t:#x}")
+            p += 2
+        if tag == 15:
+            guid = blocco[p : p + dim]
+        else:
+            campi[tag] = int.from_bytes(blocco[p : p + dim], "little", signed=True)
+        p += dim
+    opz = {}
+    while con_tag:
+        (t,) = struct.unpack_from("<H", blocco, p)
+        p += 2
+        if t == _FINE_TAG:
+            break
+        if t not in _TAG_OPZIONALI:
+            raise ValueError(f"record @{s:#x}: tag opzionale sconosciuto {t:#x}")
+        opz[t] = blocco[p : p + _TAG_OPZIONALI[t]]
+        p += _TAG_OPZIONALI[t]
+    n_prop = campi[11]
+    if n_prop < 0 or campi[13] < 0 or p + 8 * n_prop + campi[13] > len(blocco):
+        raise ValueError(f"record @{s:#x}: lunghezze fuori dal frame")
+    prop = [struct.unpack_from("<II", blocco, p + 8 * k) for k in range(n_prop)]
+    p += 8 * n_prop
+    geo = blocco[p : p + campi[13]]
+    p += campi[13]
+    return Entita(s, campi[1], campi[4], campi, guid, opz, prop, geo), p
 
 
 def leggi_disegno(dati: bytes, nome: str = "") -> Disegno:
@@ -226,8 +280,10 @@ def leggi_disegno(dati: bytes, nome: str = "") -> Disegno:
     fine_xml = dati.find(b"</HeaderExt>")
     if fine_xml < 0:
         return dis
-    dis.frame = _frame(dati, fine_xml + len(b"</HeaderExt>"))
-    if firma == "CAD_UNO" and len(dis.frame) > FRAME_ENTITA:
+    dis.frame = _unisci_frame(_frame(dati, fine_xml + len(b"</HeaderExt>")))
+    # Nei disegni vuoti il frame delle entita' manca e al suo posto c'e' il <Footer>.
+    if (firma == "CAD_UNO" and len(dis.frame) > FRAME_ENTITA
+            and not dis.frame[FRAME_ENTITA].lstrip().startswith(b"<Footer")):
         try:
             con_tag = float(versione) >= _VERSIONE_CON_TAG
         except ValueError:

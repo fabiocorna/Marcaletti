@@ -22,6 +22,13 @@ ArchLine salva nello stesso file, su due progetti (2020 e 2025): la pianta coinc
 **Frame**: `u32 n`, poi `n` byte = `u32 lunghezza_decompressa` + stream zlib (`n-4` byte).
 L'anteprima non è in un frame: il lettore salta i byte fino al frame successivo.
 
+**Frame spezzati**: un contenuto lungo è diviso in frame di esattamente 10.000.000 byte
+decompressi; il pezzo successivo è nel frame che segue. Il lettore unisce un frame al
+precedente quando questo è lungo esattamente 10.000.000 byte.
+
+**Disegni vuoti**: manca il frame delle entità e il frame 2 è già il `<Footer>`; il
+disegno ha 0 entità.
+
 Header fisso: vedi `02-formato-pro.md` §3.1 (data, firma `CAD_UNO`/`CadLn3D`,
 versione, ID disegno all'offset 108, estremi).
 
@@ -52,6 +59,15 @@ Un record dopo l'altro, senza tabella indice. Formato a tag (versione disegno �
 | 0x25 | u32 | opzionale: timestamp Unix di modifica |
 | 0x2B | u8 | opzionale |
 | 0xFFFF | — | ✓ fine header |
+
+Dopo l'header: tag 11 coppie u32 di proprietà, poi tag 13 byte di geometria.
+
+**Dati in coda non dichiarati**: i retini sfumati (tipo 11) possono portare dopo la
+geometria un blocco non contato dal tag 13 (FC1334: 1.000.360 × 32 = 32.011.520 byte; il
+numero è nella proprietà 2 e in un u32 della geometria, ma la chiave 2 non è un conteggio
+negli altri tipi). Il lettore, se il record successivo non si legge, cerca in avanti il
+prossimo inizio di record valido (tag 0..5 nell'ordine, seguito da un altro record
+leggibile) e mette i byte saltati in `Entita.extra`.
 
 ### 2.1 Layer (tag 8)
 
@@ -86,7 +102,8 @@ primo punto/centro.
 | 9 | **testo** | vedi §3.1 | ✓ |
 | 10 | **quota** | sempre sul layer delle quote; ha il GUID padre (tag 0x10) | geometria da fare |
 | 11 | **retino** | sempre sul layer dei retini/campiture | geometria da fare |
-| 1, 4, 20 | ? | | da fare |
+| 1 | probabili **punti** (79.151 nel rilievo FC975) | | da fare |
+| 4, 20 | ? | | da fare |
 
 ### 3.1 Testo (tipo 9)
 
@@ -134,7 +151,13 @@ Limiti noti:
   allineamento confrontati con l'anteprima (cartello, pianta FC1227).
 - Nello stesso campione 51 `.pro` su 80 **non sono ZIP**: sono progetti di formato vecchio
   (iniziano con `78 01 03 00`, archivio "ALTRI STUDI"). Contenitore da studiare a parte.
-- Test su tutti i `.pro` locali: vedi §5.
+- Test su tutti i `.pro` ZIP della cartella LAVORI (2026-11-10): **482 disegni 2D letti fino
+  all'ultimo byte, 2.357.153 entità**; 34 disegni non letti, in tre casi:
+  disegni vuoti, frame spezzati a 10.000.000 byte, retino sfumato con dati in coda (§1, §2).
+  Dopo la correzione **tutti i 34 si leggono**: 27 vuoti (0 entità) e 7 con frame spezzati
+  (98.521–311.873 entità, in totale 995.760). FC1334, rimasto fuori dalla seconda raccolta,
+  provato a parte: 14 entità, con un retino che ha 32 MB di dati in coda. I disegni già letti
+  (Document9, Document1, FC140, Fc1378) danno gli stessi numeri di prima.
 
 ## 5. Strumento
 
