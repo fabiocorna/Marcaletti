@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDou
 from .document import PdfDocument, parse_page_ranges
 
 FIT, ACTUAL, SHRINK, CUSTOM = "fit", "actual", "shrink", "custom"
+PDF_FILE_TARGET = "Salva come file PDF"
 ALL, CURRENT, SELECTED, RANGE = "all", "current", "selected", "range"
 
 
@@ -78,23 +79,32 @@ def sheets_needed(n_pages: int, copies: int, duplex: bool) -> int:
     return per_copy * copies
 
 
+MAX_RENDER_PIXELS = 60_000_000  # circa 180 MB a colori per pagina
+
+
 def render_page(page: pymupdf.Page, dpi: float, grayscale: bool, annotations: bool) -> QImage:
+    from .viewer import pixmap_to_qimage
     cs = pymupdf.csGRAY if grayscale else pymupdf.csRGB
-    pix = page.get_pixmap(dpi=dpi, colorspace=cs, annots=annotations, alpha=False)
-    fmt = QImage.Format_Grayscale8 if pix.n == 1 else QImage.Format_RGB888
-    return QImage(pix.samples, pix.width, pix.height, pix.stride, fmt).copy()
+    # Limite di sicurezza per le tavole molto grandi
+    pixels = (page.rect.width * dpi / 72) * (page.rect.height * dpi / 72)
+    if pixels > MAX_RENDER_PIXELS:
+        dpi *= (MAX_RENDER_PIXELS / pixels) ** 0.5
+    pix = page.get_pixmap(dpi=max(1, int(round(dpi))), colorspace=cs, annots=annotations, alpha=False)
+    return pixmap_to_qimage(pix)
 
 
 def paper_geometry(printer: QPrinter) -> tuple[float, float, tuple]:
+    """Foglio e area stampabile in punti. L'area si ricava dai margini, che restano validi
+    anche in modalità a pagina intera (dove paintRect coincide con tutto il foglio)."""
     layout = printer.pageLayout()
     full = layout.fullRect(QPageLayout.Point)
-    paint = layout.paintRect(QPageLayout.Point)
-    return full.width(), full.height(), (paint.x(), paint.y(), paint.width(), paint.height())
+    m = layout.margins(QPageLayout.Point)
+    printable = (m.left(), m.top(), full.width() - m.left() - m.right(), full.height() - m.top() - m.bottom())
+    return full.width(), full.height(), printable
 
 
 def configure_printer(printer: QPrinter, opts: PrintOptions, title: str) -> None:
     printer.setDocName(title)
-    printer.setFullPage(True)
     printer.setCopyCount(max(1, opts.copies))
     printer.setCollateCopies(opts.collate)
     printer.setColorMode(QPrinter.GrayScale if opts.grayscale else QPrinter.Color)
@@ -102,33 +112,51 @@ def configure_printer(printer: QPrinter, opts: PrintOptions, title: str) -> None
                        "short": QPrinter.DuplexShortSide}[opts.duplex])
 
 
+class PrintCancelled(Exception):
+    pass
+
+
 def print_pages(doc: PdfDocument, pages: list[int], printer: QPrinter, opts: PrintOptions,
                 progress=None) -> int:
-    """Stampa le pagine sulla stampante già configurata. Ritorna le pagine stampate."""
+    """Stampa le pagine sulla stampante. Ritorna le pagine stampate; se l'utente annulla,
+    il lavoro viene interrotto (niente stampa parziale) e si solleva PrintCancelled."""
     paper_w, paper_h, printable = paper_geometry(printer)
-    dpi = min(printer.resolution(), 300)
+    printer.setFullPage(True)  # coordinate dal bordo del foglio: l'area stampabile è già in printable
+    base_dpi = min(printer.resolution(), 300)
     px_per_pt = printer.resolution() / 72.0
     painter = QPainter()
     if not painter.begin(printer):
         raise RuntimeError("Impossibile avviare la stampa: controlla che la stampante sia disponibile")
     done = 0
+    aborted = False
     try:
         for n, i in enumerate(pages):
             if progress is not None and not progress(n, len(pages)):
+                aborted = True
                 break
             if n:
                 printer.newPage()
             page = doc.page(i)
-            rotate, x, y, w, h, _s = placement(page.rect.width, page.rect.height, paper_w, paper_h, printable,
-                                               opts.sizing, opts.scale, opts.auto_rotate)
+            rotate, x, y, w, h, s = placement(page.rect.width, page.rect.height, paper_w, paper_h, printable,
+                                              opts.sizing, opts.scale, opts.auto_rotate)
+            # Risoluzione proporzionale alla scala: niente immagini enormi per le tavole ridotte
+            dpi = max(72.0, min(base_dpi * s, 600.0))
             img = render_page(page, dpi, opts.grayscale, opts.annotations)
             if rotate:
                 img = img.transformed(QTransform().rotate(90))
             target = QRectF(x * px_per_pt, y * px_per_pt, w * px_per_pt, h * px_per_pt)
             painter.drawImage(target, img)
             done += 1
+    except Exception:
+        aborted = True
+        printer.abort()
+        raise
     finally:
+        if aborted and printer.printerState() == QPrinter.Active:
+            printer.abort()
         painter.end()
+    if aborted:
+        raise PrintCancelled()
     return done
 
 
@@ -188,6 +216,7 @@ class PrintDialog(QDialog):
         self.selected = selected
         self.settings = settings
         self.printer: QPrinter | None = None
+        self._paper_chosen = False
         self._pages: list[int] = []
         self._preview_index = 0
         self._img_cache: dict = {}
@@ -203,15 +232,19 @@ class PrintDialog(QDialog):
         names = QPrinterInfo.availablePrinterNames()
         default = QPrinterInfo.defaultPrinterName()
         last = settings.value("print/printer", "") if settings else ""
-        self.printer_combo.addItems(names or ["(nessuna stampante installata)"])
-        pick = last if last in names else default
-        if pick in names:
+        self.printer_combo.addItems(names)
+        self.printer_combo.addItem(PDF_FILE_TARGET)
+        pick = last if last in names + [PDF_FILE_TARGET] else default
+        if pick in names + [PDF_FILE_TARGET]:
             self.printer_combo.setCurrentText(pick)
         row = QHBoxLayout()
         row.addWidget(self.printer_combo, 1)
         self.props_btn = QPushButton("Carta…")
         self.props_btn.setToolTip("Formato carta, orientamento e margini")
         row.addWidget(self.props_btn)
+        self.driver_btn = QPushButton("Proprietà…")
+        self.driver_btn.setToolTip("Impostazioni del driver della stampante (cassetto, qualità, finitura…)")
+        row.addWidget(self.driver_btn)
         f.addRow(row)
         self.copies = QSpinBox(minimum=1, maximum=999, value=1)
         self.collate = QCheckBox("Fascicola")
@@ -325,14 +358,17 @@ class PrintDialog(QDialog):
         # Collegamenti
         self.printer_combo.currentIndexChanged.connect(self._printer_changed)
         self.props_btn.clicked.connect(self._page_setup)
-        for w_ in (self.r_all, self.r_current, self.r_selected, self.r_range, self.reverse, self.s_fit,
-                   self.s_actual, self.s_shrink, self.s_custom, self.auto_rotate, self.gray, self.annots):
+        self.driver_btn.clicked.connect(self._driver_settings)
+        # Nei gruppi di pulsanti si aggiorna solo per quello che si attiva (non anche per quello che si spegne)
+        for group in (self.pages_group, self.sizing_group):
+            group.buttonToggled.connect(lambda _b, checked: checked and self._refresh())
+        for w_ in (self.reverse, self.auto_rotate, self.gray, self.annots):
             w_.toggled.connect(self._refresh)
         for w_ in (self.subset, self.duplex):
             w_.currentIndexChanged.connect(self._refresh)
         self.copies.valueChanged.connect(self._refresh)
-        self.scale.valueChanged.connect(lambda _v: (self.s_custom.setChecked(True), self._refresh()))
-        self.range_edit.textEdited.connect(lambda _t: (self.r_range.setChecked(True), self._refresh()))
+        self.scale.valueChanged.connect(lambda _v: self._select_or_refresh(self.s_custom))
+        self.range_edit.textEdited.connect(lambda _t: self._select_or_refresh(self.r_range))
         self.first_btn.clicked.connect(lambda: self._go(0))
         self.prev_btn.clicked.connect(lambda: self._go(self._preview_index - 1))
         self.next_btn.clicked.connect(lambda: self._go(self._preview_index + 1))
@@ -356,14 +392,39 @@ class PrintDialog(QDialog):
 
     def _printer_changed(self) -> None:
         name = self.printer_combo.currentText()
+        old = self.printer
         if name in QPrinterInfo.availablePrinterNames():
             self.printer = QPrinter(QPrinterInfo.printerInfo(name), QPrinter.HighResolution)
         else:
-            self.printer = QPrinter(QPrinter.HighResolution)  # senza stampanti: solo anteprima
+            self.printer = QPrinter(QPrinter.HighResolution)
+            self.printer.setOutputFormat(QPrinter.PdfFormat)  # «Salva come file PDF»
+        if old is not None and self._paper_chosen:
+            # Mantiene formato e orientamento scelti con «Carta…»
+            self.printer.setPageSize(old.pageLayout().pageSize())
+            self.printer.setPageOrientation(old.pageLayout().orientation())
+        self.driver_btn.setEnabled(self.printer.outputFormat() == QPrinter.NativeFormat)
         self._refresh()
 
     def _page_setup(self) -> None:
         if self.printer is not None and QPageSetupDialog(self.printer, self).exec():
+            self._paper_chosen = True
+            self._refresh()
+
+    def _driver_settings(self) -> None:
+        """Finestra di Windows della stampante, con il pulsante Preferenze del driver."""
+        from PySide6.QtPrintSupport import QAbstractPrintDialog, QPrintDialog
+        dlg = QPrintDialog(self.printer, self)
+        dlg.setOption(QAbstractPrintDialog.PrintPageRange, False)
+        dlg.setOption(QAbstractPrintDialog.PrintSelection, False)
+        dlg.setOption(QAbstractPrintDialog.PrintCurrentPage, False)
+        dlg.setWindowTitle("Proprietà della stampante")
+        if dlg.exec():
+            name = self.printer.printerName()
+            if name and name != self.printer_combo.currentText():
+                self.printer_combo.blockSignals(True)
+                self.printer_combo.setCurrentText(name)
+                self.printer_combo.blockSignals(False)
+            self._paper_chosen = True
             self._refresh()
 
     def _refresh(self, *_args) -> None:
@@ -376,8 +437,8 @@ class PrintDialog(QDialog):
             self.range_error.setText(str(exc) if opts.pages_mode == RANGE and opts.ranges.strip()
                                      else "Indica le pagine, es. 1-3, 5, 8-")
         n = len(self._pages)
-        has_printer = self.printer_combo.currentText() in QPrinterInfo.availablePrinterNames()
-        self.print_btn.setEnabled(n > 0 and has_printer)
+        self.print_btn.setEnabled(n > 0 and self.printer is not None)
+        self.print_btn.setText("Salva PDF…" if self._to_file() else "Stampa")
         self._preview_index = min(self._preview_index, max(0, n - 1))
         sheets = sheets_needed(n, opts.copies, opts.duplex != "none")
         if n:
@@ -388,6 +449,15 @@ class PrintDialog(QDialog):
         else:
             self.summary.setText("Nessuna pagina da stampare.")
         self._update_preview()
+
+    def _select_or_refresh(self, radio: QRadioButton) -> None:
+        if radio.isChecked():
+            self._refresh()
+        else:
+            radio.setChecked(True)  # l'attivazione aggiorna già l'anteprima
+
+    def _to_file(self) -> bool:
+        return self.printer is not None and self.printer.outputFormat() == QPrinter.PdfFormat
 
     def _go(self, index: int) -> None:
         if self._pages:
@@ -423,6 +493,14 @@ class PrintDialog(QDialog):
         opts = self.options()
         if not self._pages or self.printer is None:
             return
+        if self._to_file():
+            from PySide6.QtWidgets import QFileDialog
+            import os
+            base = os.path.splitext(self.doc.path or self.doc.title)[0]
+            out, _ = QFileDialog.getSaveFileName(self, "Salva come file PDF", base + "_stampa.pdf", "PDF (*.pdf)")
+            if not out:
+                return
+            self.printer.setOutputFileName(out)
         configure_printer(self.printer, opts, self.doc.title)
         progress = QProgressDialog("Stampa in corso…", "Annulla", 0, len(self._pages), self)
         progress.setWindowModality(Qt.WindowModal)
@@ -433,6 +511,10 @@ class PrintDialog(QDialog):
             return not progress.wasCanceled()
         try:
             done = print_pages(self.doc, self._pages, self.printer, opts, step)
+        except PrintCancelled:
+            progress.close()
+            QMessageBox.information(self, "Stampa", "Stampa annullata: alla stampante non è stato inviato nulla.")
+            return
         except Exception as exc:
             progress.close()
             QMessageBox.critical(self, "Stampa", str(exc))

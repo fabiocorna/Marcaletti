@@ -9,7 +9,7 @@ from PySide6.QtCore import QSettings, QSize, Qt, QUrl
 from PySide6.QtGui import (QAction, QActionGroup, QColor, QDesktopServices, QFont, QIcon, QImage,
                            QKeySequence, QPainter, QPixmap)
 from PySide6.QtWidgets import (QApplication, QColorDialog, QComboBox, QFileDialog, QHBoxLayout,
-                               QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressDialog,
+                               QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox,
                                QSizePolicy, QSpinBox, QSplitter, QStyle, QTabWidget, QToolBar, QToolButton,
                                QVBoxLayout, QWidget)
 

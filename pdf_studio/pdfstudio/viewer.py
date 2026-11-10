@@ -63,7 +63,10 @@ CLICK_TOOLS = {EDIT_TEXT, NOTE, ERASER}
 
 
 def pixmap_to_qimage(pix: pymupdf.Pixmap) -> QImage:
-    fmt = QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888
+    if pix.n == 1:
+        fmt = QImage.Format_Grayscale8
+    else:
+        fmt = QImage.Format_RGBA8888 if pix.alpha else QImage.Format_RGB888
     img = QImage(pix.samples, pix.width, pix.height, pix.stride, fmt)
     return img.copy()  # stacca i dati dal buffer di PyMuPDF
 

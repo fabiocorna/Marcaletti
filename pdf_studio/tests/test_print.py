@@ -82,3 +82,69 @@ def test_dialog_summary():
     dlg._refresh()
     assert dlg._pages == [] and dlg.range_error.text()
     dlg.deleteLater()
+
+
+def _pdf_printer(tmp_path, name="out.pdf"):
+    from PySide6.QtPrintSupport import QPrinter
+    printer = QPrinter(QPrinter.HighResolution)
+    printer.setOutputFormat(QPrinter.PdfFormat)
+    printer.setOutputFileName(str(tmp_path / name))
+    return printer
+
+
+def test_margins_same_in_preview_and_print(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    printer = _pdf_printer(tmp_path)
+    before = P.paper_geometry(printer)
+    P.configure_printer(printer, opts(), "x")
+    d = PdfDocument.new()
+    P.print_pages(d, [0], printer, opts())
+    after = P.paper_geometry(printer)
+    assert before == after and after[2][0] > 0  # i margini restano anche in modalità pagina intera
+
+
+def test_cancel_raises_and_prints_nothing(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    d = PdfDocument.new(pages=5)
+    printer = _pdf_printer(tmp_path, "annullata.pdf")
+    with pytest.raises(P.PrintCancelled):
+        P.print_pages(d, list(range(5)), printer, opts(), progress=lambda n, tot: n < 2)
+    out = tmp_path / "annullata.pdf"
+    assert not out.exists() or out.stat().st_size == 0 or pymupdf.open(str(out)).page_count < 5
+
+
+def test_render_resolution_follows_scale(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    doc = pymupdf.open()
+    doc.new_page(width=2384, height=3370)  # A0
+    path = str(tmp_path / "a0.pdf")
+    doc.save(path)
+    d = PdfDocument.open(path)
+    used = []
+    real = P.render_page
+    monkeypatch.setattr(P, "render_page", lambda page, dpi, g, a: (used.append(dpi), real(page, dpi, g, a))[1])
+    P.print_pages(d, [0], _pdf_printer(tmp_path), opts())
+    assert used and used[0] < 120  # A0 su A4: circa un quarto della risoluzione piena
+    img = real(d.page(0), 1200, False, False)
+    assert img.width() * img.height() <= P.MAX_RENDER_PIXELS * 1.01
+
+
+def test_dialog_pdf_target_and_paper_kept():
+    from PySide6.QtGui import QPageLayout, QPageSize
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    d = PdfDocument.new(pages=2)
+    dlg = P.PrintDialog(d, 0, [])
+    assert dlg.printer_combo.findText(P.PDF_FILE_TARGET) >= 0
+    dlg.printer_combo.setCurrentText(P.PDF_FILE_TARGET)
+    assert dlg.print_btn.isEnabled() and dlg.print_btn.text() == "Salva PDF…"
+    dlg.printer.setPageSize(QPageSize(QPageSize.A3))
+    dlg.printer.setPageOrientation(QPageLayout.Landscape)
+    dlg._paper_chosen = True
+    dlg._printer_changed()  # come se si cambiasse stampante
+    w, h, _p = P.paper_geometry(dlg.printer)
+    assert w > h and round(w) == 1191
+    dlg.deleteLater()
