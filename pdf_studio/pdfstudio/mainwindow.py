@@ -260,7 +260,9 @@ class MainWindow(QMainWindow):
         self.a_export_docx = self._act("Esporta in &Word (.docx)…", self.export_docx)
         self.a_export_dxf = self._act("Esporta in &DXF (CAD)…", self.export_dxf, None, glyph_icon("⌖"),
                                       "Esporta i disegni vettoriali in DXF per AutoCAD e altri CAD")
-        self.a_print = self._act("S&tampa…", self.print_document, QKeySequence.Print, glyph_icon("🖶"))
+        self.a_print = self._act("S&tampa…", self.print_document, QKeySequence.Print, glyph_icon("🖶"),
+                                 "Stampa con anteprima del foglio e scelta delle pagine")
+        self.a_print_preview = self._act("Anteprima di s&tampa…", self.print_document, "Ctrl+Shift+P")
         self.a_props = self._act("&Proprietà…", self.properties, "Ctrl+D")
         self.a_security = self._act("Proteggi con &password…", self.security, None, glyph_icon("🔒"))
         self.a_pdfa = self._act("Salva come PDF/&A…", self.save_pdfa, None, glyph_icon("Ⓐ"),
@@ -361,6 +363,7 @@ class MainWindow(QMainWindow):
         for a in (self.a_export_img, self.a_export_txt, self.a_export_docx, self.a_export_dxf):
             exp.addAction(a)
         m.addSeparator()
+        m.addAction(self.a_print_preview)
         m.addAction(self.a_print)
         m.addAction(self.a_props)
         m.addAction(self.a_security)
@@ -531,7 +534,7 @@ class MainWindow(QMainWindow):
         d = t.document if t else None
         has = d is not None
         for a in (self.a_save, self.a_save_as, self.a_compress, self.a_export_img, self.a_export_txt,
-                  self.a_export_docx, self.a_print, self.a_props, self.a_security, self.a_close, self.a_find,
+                  self.a_export_docx, self.a_print, self.a_print_preview, self.a_props, self.a_security, self.a_close, self.a_find,
                   self.a_zoom_in, self.a_zoom_out, self.a_fit_p, self.a_fit_w, self.a_actual, self.a_rot_l,
                   self.a_rot_r, self.a_del_page, self.a_ins_blank, self.a_ins_file, self.a_dup, self.a_extract,
                   self.a_split, self.a_watermark, self.a_pagenums, self.a_flatten, self.a_ocr, self.a_move_up,
@@ -925,44 +928,12 @@ class MainWindow(QMainWindow):
         d = self._require_doc()
         if not d:
             return
-        from PySide6.QtPrintSupport import QPrintDialog, QPrinter
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setDocName(d.title)
-        dlg = QPrintDialog(printer, self)
-        dlg.setMinMax(1, d.page_count)
-        dlg.setFromTo(1, d.page_count)
-        if not dlg.exec():
-            return
-        first, last = printer.fromPage() or 1, printer.toPage() or d.page_count
-        dpi = min(printer.resolution(), 300)
-        painter = QPainter()
-        if not painter.begin(printer):
-            self._error("Stampa", "Impossibile avviare la stampa")
-            return
-        progress = QProgressDialog("Stampa in corso…", "Annulla", first - 1, last, self)
-        progress.setWindowModality(Qt.WindowModal)
-        try:
-            for i in range(first - 1, last):
-                if progress.wasCanceled():
-                    break
-                progress.setValue(i)
-                if i > first - 1:
-                    printer.newPage()
-                pix = d.page(i).get_pixmap(dpi=dpi, annots=True, alpha=False)
-                img = V.pixmap_to_qimage(pix)
-                area = painter.viewport()
-                size = img.size()
-                size.scale(area.size(), Qt.KeepAspectRatio)
-                painter.setViewport(area.x() + (area.width() - size.width()) // 2,
-                                    area.y() + (area.height() - size.height()) // 2,
-                                    size.width(), size.height())
-                painter.setWindow(img.rect())
-                painter.drawImage(0, 0, img)
-                painter.setViewport(area)
-                painter.setWindow(area)
-        finally:
-            painter.end()
-            progress.close()
+        from .print_dialog import PrintDialog
+        t = self.tab()
+        selected = t.thumbs.selected_pages() if t else []
+        dlg = PrintDialog(d, t.view.current_page, selected, self.settings, self)
+        dlg.printed.connect(lambda n: self.statusBar().showMessage(f"Inviate {n} pagine alla stampante", 5000))
+        dlg.exec()
 
     def properties(self) -> None:
         d = self._require_doc()

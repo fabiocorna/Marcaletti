@@ -1,12 +1,18 @@
-## CRN PDF Studio 1.5.1
+## CRN PDF Studio 1.6.0
 
 Lettore ed editor PDF per Windows.
 
 ### Download
-- **CRNPDFStudio-Setup-1.5.1.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
-- **CRNPDFStudio-portabile-1.5.1.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
+- **CRNPDFStudio-Setup-1.6.0.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
+- **CRNPDFStudio-portabile-1.6.0.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
 
 Al primo avvio Windows può mostrare «Windows ha protetto il PC» (programma senza firma digitale): *Ulteriori informazioni → Esegui comunque*.
+
+### Novità della 1.6
+- **Nuova finestra di stampa con anteprima** (File → Stampa, Ctrl+P): a destra l'anteprima del foglio con carta, margini e pagina come uscirà, sfogliabile pagina per pagina.
+- **Scelta delle pagine**: tutte, pagina corrente, pagine selezionate nelle miniature, intervalli («1-3, 5, 8-»), solo pari o solo dispari, ordine inverso; riepilogo di pagine e fogli.
+- **Dimensioni**: adatta al foglio, dimensioni reali, riduci solo le pagine più grandi, scala personalizzata; rotazione automatica delle tavole orizzontali.
+- Fronte-retro, copie, fascicolazione, bianco e nero, stampa con o senza commenti; scelta della stampante e del formato carta. La stampante usata viene ricordata.
 
 ### Correzioni della 1.5.1 (revisione del codice)
 - Salvando (Ctrl+S), stampando o esportando mentre si scrive in un campo del modulo o in un paragrafo, l'ultimo testo digitato ora viene sempre incluso.

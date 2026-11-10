@@ -14,7 +14,9 @@ Lettore ed editor PDF per Windows, in stile Adobe Acrobat. Scritto in Python con
 - Selezione del testo come in Acrobat: trascina sul testo, doppio/triplo clic per parola/riga,
   Ctrl+A e Ctrl+C; clic destro per copiare, evidenziare o cercare la selezione
 - Apre anche immagini, XPS, EPUB (convertiti in PDF); trascinamento dei file sulla finestra
-- Documenti protetti da password, stampa, file recenti
+- Documenti protetti da password, file recenti
+- Stampa con anteprima del foglio: scelta pagine (intervalli, pari/dispari, miniature selezionate),
+  adatta/dimensioni reali/scala, rotazione automatica, fronte-retro, copie, bianco e nero
 
 **Modifica del testo esistente**
 - Strumento *Modifica testo*: clic su un paragrafo e si scrive direttamente sulla pagina, come in Word;

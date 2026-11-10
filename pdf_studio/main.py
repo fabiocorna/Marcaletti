@@ -47,6 +47,13 @@ def selftest(report_path: str) -> int:
         f = next(x for x in d.form_fields() if x.name == "nome")
         win.tab().view.fieldEdited.emit(f, "Mario Rossi")
         assert next(x for x in d.form_fields() if x.name == "nome").value == "Mario Rossi", "modulo"
+        from PySide6.QtPrintSupport import QPrinter
+
+        from pdfstudio import print_dialog
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setOutputFormat(QPrinter.PdfFormat)
+        printer.setOutputFileName(os.path.join(tmp, "stampa.pdf"))
+        assert print_dialog.print_pages(d, [0], printer, print_dialog.PrintOptions()) == 1, "stampa"
         rep = dxf_export.export_page(d.doc, 0, os.path.join(tmp, "prova.dxf"))
         assert rep.circles == 1, "esportazione DXF non riuscita"
         gs = pdfa.find_ghostscript()
