@@ -93,6 +93,32 @@ class FontChoice:
         return pymupdf.Font(fontbuffer=self.buffer)
 
 
+_NOLIG_CACHE: dict[str, bytes] = {}
+
+
+def without_ligatures(buf: bytes) -> bytes:
+    """Toglie la tabella GSUB (legature come «tt», «ti», «fi»): con le legature il motore HTML
+    scrive glifi senza corrispondenza Unicode e il testo non si trova né si copia più.
+    La crenatura (GPOS) resta, quindi la spaziatura delle lettere non cambia."""
+    key = hashlib.md5(buf).hexdigest()
+    if key in _NOLIG_CACHE:
+        return _NOLIG_CACHE[key]
+    out = buf
+    try:
+        import io
+        from fontTools.ttLib import TTFont
+        font = TTFont(io.BytesIO(buf), lazy=False)
+        if "GSUB" in font:
+            del font["GSUB"]
+            bio = io.BytesIO()
+            font.save(bio)
+            out = bio.getvalue()
+    except Exception:
+        pass  # formato non gestito (es. CFF puro): si usa il font così com'è
+    _NOLIG_CACHE[key] = out
+    return out
+
+
 def _base14_for(font: str, flags: int) -> str:
     from .document import guess_base14
     return guess_base14(font, flags)
@@ -162,6 +188,22 @@ class FontResolver:
 
 # ------------------------------------------------------------------ paragrafi
 @dataclass
+class TextStyle:
+    font: str
+    size: float
+    color: tuple[float, float, float]
+    flags: int
+
+    @property
+    def bold(self) -> bool:
+        return bool(self.flags & 16) or any(w in self.font.lower() for w in ("bold", "black", "heavy"))
+
+    @property
+    def italic(self) -> bool:
+        return bool(self.flags & 2) or "italic" in self.font.lower() or "oblique" in self.font.lower()
+
+
+@dataclass
 class TextLine:
     bbox: pymupdf.Rect
     origin: pymupdf.Point
@@ -170,29 +212,24 @@ class TextLine:
 
 @dataclass
 class TextBlock:
+    """Un paragrafo: righe consecutive con le parti di testo (run) e i loro stili."""
     page: int
     bbox: pymupdf.Rect
     lines: list[TextLine]
-    font: str
+    font: str            # stile prevalente (per compatibilità e per l'anteprima)
     size: float
     color: tuple[float, float, float]
     flags: int
     align: str = "left"
     line_height: float = 1.2
     extra: dict = field(default_factory=dict)
+    styles: list[TextStyle] = field(default_factory=list)
+    runs: list[tuple[str, int]] = field(default_factory=list)   # (testo, indice dello stile)
+    pitch: float = 0.0   # distanza tra le linee di base, in punti
 
     @property
     def text(self) -> str:
-        out = ""
-        for ln in self.lines:
-            t = ln.text.rstrip()
-            if not out:
-                out = t
-            elif out.endswith("-") and len(out) > 1 and out[-2].isalpha():
-                out = out[:-1] + t.lstrip()  # parola spezzata a fine riga
-            else:
-                out += " " + t.lstrip()
-        return out
+        return "".join(t for t, _s in self.runs)
 
     @property
     def bold(self) -> bool:
@@ -202,58 +239,159 @@ class TextBlock:
     def italic(self) -> bool:
         return bool(self.flags & 2) or "italic" in self.font.lower() or "oblique" in self.font.lower()
 
+    def char_styles(self) -> list[int]:
+        """Indice di stile per ogni carattere del testo."""
+        out: list[int] = []
+        for t, sid in self.runs:
+            out.extend([sid] * len(t))
+        return out
+
 
 def _rgb(value: int) -> tuple[float, float, float]:
     return (((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255)
 
 
-def block_at(doc: pymupdf.Document, index: int, point: pymupdf.Point) -> TextBlock | None:
-    page = doc[index]
+def _page_lines(page: pymupdf.Page) -> list[dict]:
+    """Righe orizzontali della pagina, ordinate dall'alto; unisce i pezzi sulla stessa linea di base."""
+    raw = []
     for b in page.get_text("dict", flags=pymupdf.TEXTFLAGS_TEXT)["blocks"]:
-        if b.get("type") != 0 or not pymupdf.Rect(b["bbox"]).contains(point):
-            continue
-        lines = []
-        stats: dict[tuple, int] = {}
-        for ln in b["lines"]:
-            if ln["dir"] != (1.0, 0.0) and abs(ln["dir"][1]) > 0.01:
-                return None  # testo ruotato: non supportato nella modifica a paragrafo
-            text = "".join(s["text"] for s in ln["spans"])
-            if not text.strip():
+        for ln in b.get("lines", []):
+            if abs(ln["dir"][1]) > 0.01 or ln["dir"][0] < 0:
+                continue  # testo ruotato: non modificabile come paragrafo
+            spans = [sp for sp in ln["spans"] if sp["text"]]
+            if not "".join(sp["text"] for sp in spans).strip():
                 continue
-            lines.append(TextLine(pymupdf.Rect(ln["bbox"]), pymupdf.Point(ln["spans"][0]["origin"]), text))
-            for s in ln["spans"]:
-                key = (s["font"], round(s["size"], 1), s["color"], s["flags"] & (2 | 16))
-                stats[key] = stats.get(key, 0) + len(s["text"].strip())
-        if not lines:
-            return None
-        font, size, color, flags = max(stats, key=stats.get)
-        blk = TextBlock(index, pymupdf.Rect(b["bbox"]), lines, font, size, _rgb(color), flags)
-        blk.extra["mixed_styles"] = len(stats) > 1
-        # Interlinea
-        if len(lines) > 1:
-            gaps = [lines[i + 1].origin.y - lines[i].origin.y for i in range(len(lines) - 1)]
-            gaps = [g for g in gaps if g > 0]
-            if gaps:
-                blk.line_height = max(1.0, min(2.5, sorted(gaps)[len(gaps) // 2] / size))
-        # Allineamento
-        if len(lines) >= 2:
-            x0s = [ln.bbox.x0 for ln in lines]
-            x1s = [ln.bbox.x1 for ln in lines[:-1]]
-            left_aligned = max(x0s) - min(x0s) < size * 0.6
-            right_aligned = max(x1s) - min(x1s) < size * 0.6 if len(x1s) > 1 else False
-            centers = [(ln.bbox.x0 + ln.bbox.x1) / 2 for ln in lines]
-            if left_aligned and right_aligned and len(lines) >= 3:
-                blk.align = "justify"
-            elif not left_aligned and max(centers) - min(centers) < size * 0.6:
-                blk.align = "center"
-            elif not left_aligned and len(x1s) > 1 and right_aligned:
-                blk.align = "right"
-        return blk
-    return None
+            raw.append({"bbox": pymupdf.Rect(ln["bbox"]), "spans": spans,
+                        "y": spans[0]["origin"][1], "size": max(sp["size"] for sp in spans)})
+    raw.sort(key=lambda r: (round(r["y"], 1), r["bbox"].x0))
+    merged: list[dict] = []
+    for r in raw:
+        last = merged[-1] if merged else None
+        if last and abs(last["y"] - r["y"]) < 0.3 * r["size"] and 0 <= r["bbox"].x0 - last["bbox"].x1 < 1.5 * r["size"]:
+            last["spans"] += r["spans"]
+            last["bbox"] |= r["bbox"]
+            last["size"] = max(last["size"], r["size"])
+        else:
+            merged.append(r)
+    for r in merged:
+        sizes: dict[float, int] = {}
+        for sp in r["spans"]:
+            sizes[round(sp["size"], 1)] = sizes.get(round(sp["size"], 1), 0) + len(sp["text"])
+        r["main_size"] = max(sizes, key=sizes.get)
+    return merged
+
+
+def _h_overlap(a: pymupdf.Rect, b: pymupdf.Rect) -> float:
+    return min(a.x1, b.x1) - max(a.x0, b.x0)
+
+
+def _next_line(lines: list[dict], cur: dict, down: bool) -> dict | None:
+    size = cur["main_size"]
+    cands = [ln for ln in lines if ln is not cur and
+             ((ln["y"] > cur["y"] + 0.3 * size) if down else (ln["y"] < cur["y"] - 0.3 * size)) and
+             _h_overlap(ln["bbox"], cur["bbox"]) > 0.25 * min(ln["bbox"].width, cur["bbox"].width)]
+    if not cands:
+        return None
+    return min(cands, key=lambda ln: abs(ln["y"] - cur["y"]))
+
+
+def _same_paragraph(a: dict, b: dict, pitch: float | None) -> bool:
+    """b segue a nello stesso paragrafo?"""
+    size = max(a["main_size"], b["main_size"])
+    if abs(a["main_size"] - b["main_size"]) > 0.2 * size:
+        return False
+    gap = abs(b["y"] - a["y"])
+    if pitch:
+        return abs(gap - pitch) <= 0.15 * pitch
+    return gap <= 1.6 * size and abs(a["bbox"].x0 - b["bbox"].x0) < 4 * size
+
+
+def block_at(doc: pymupdf.Document, index: int, point: pymupdf.Point) -> TextBlock | None:
+    """Paragrafo che contiene il punto, anche se nel PDF ogni riga è un pezzo separato."""
+    lines = _page_lines(doc[index])
+    hit = next((ln for ln in lines if (ln["bbox"] + (-1, -1, 1, 1)).contains(point)), None)
+    if hit is None:
+        return None
+    para = [hit]
+    pitch = None
+    cur = hit
+    while (nxt := _next_line(lines, cur, down=True)) is not None and _same_paragraph(cur, nxt, pitch):
+        pitch = pitch or abs(nxt["y"] - cur["y"])
+        para.append(nxt)
+        cur = nxt
+    cur = hit
+    while (prv := _next_line(lines, cur, down=False)) is not None and _same_paragraph(prv, cur, pitch):
+        pitch = pitch or abs(cur["y"] - prv["y"])
+        para.insert(0, prv)
+        cur = prv
+
+    styles: list[TextStyle] = []
+    keys: dict[tuple, int] = {}
+    runs: list[tuple[str, int]] = []
+    counts: dict[int, int] = {}
+    tlines: list[TextLine] = []
+    for n, ln in enumerate(para):
+        spans = ln["spans"]
+        if n and runs:
+            last_text, last_sid = runs[-1]
+            first = spans[0]["text"]
+            if last_text.endswith("-") and len(last_text) > 1 and last_text[-2].isalpha() and first[:1].islower():
+                runs[-1] = (last_text[:-1], last_sid)          # parola spezzata a fine riga
+            elif not last_text.endswith(" ") and not first.startswith(" "):
+                runs[-1] = (last_text + " ", last_sid)
+        for sp in spans:
+            key = (sp["font"], round(sp["size"], 1), sp["color"], sp["flags"] & (2 | 16))
+            if key not in keys:
+                keys[key] = len(styles)
+                styles.append(TextStyle(sp["font"], sp["size"], _rgb(sp["color"]), sp["flags"]))
+            sid = keys[key]
+            if runs and runs[-1][1] == sid:
+                runs[-1] = (runs[-1][0] + sp["text"], sid)
+            else:
+                runs.append((sp["text"], sid))
+            counts[sid] = counts.get(sid, 0) + len(sp["text"].strip())
+        tlines.append(TextLine(ln["bbox"], pymupdf.Point(spans[0]["origin"]),
+                               "".join(sp["text"] for sp in spans)))
+    main = styles[max(counts, key=counts.get)]
+    bbox = pymupdf.Rect(para[0]["bbox"])
+    for ln in para[1:]:
+        bbox |= ln["bbox"]
+    blk = TextBlock(index, bbox, tlines, main.font, main.size, main.color, main.flags,
+                    styles=styles, runs=runs, pitch=pitch or main.size * 1.2)
+    blk.line_height = max(1.0, min(2.5, blk.pitch / main.size))
+    blk.extra["mixed_styles"] = len(styles) > 1
+    blk.extra["line_rects"] = [ln["bbox"] for ln in para]
+    # Allineamento
+    if len(para) >= 2:
+        size = main.size
+        x0s = [ln["bbox"].x0 for ln in para]
+        x1s = [ln["bbox"].x1 for ln in para[:-1]]
+        left_aligned = max(x0s) - min(x0s) < size * 0.6
+        right_aligned = max(x1s) - min(x1s) < size * 0.6 if len(x1s) > 1 else False
+        centers = [(ln["bbox"].x0 + ln["bbox"].x1) / 2 for ln in para]
+        if left_aligned and right_aligned and len(para) >= 3:
+            blk.align = "justify"
+        elif left_aligned and len(para) == 2 and abs(para[0]["bbox"].x1 - bbox.x1) < size * 0.6 \
+                and para[1]["bbox"].x1 < bbox.x1 - size:
+            blk.align = "justify"  # due righe: la prima arriva al margine destro
+        elif not left_aligned and max(centers) - min(centers) < size * 0.6:
+            blk.align = "center"
+        elif not left_aligned and len(x1s) > 1 and right_aligned:
+            blk.align = "right"
+    return blk
 
 
 def _remove_text(page: pymupdf.Page, rect: pymupdf.Rect) -> None:
     page.add_redact_annot(rect, fill=False)
+    page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
+                          graphics=getattr(pymupdf, "PDF_REDACT_LINE_ART_NONE", 0))
+
+
+def _remove_lines(page: pymupdf.Page, rects: list[pymupdf.Rect]) -> None:
+    """Toglie il testo riga per riga (non tocca quello che sta accanto al paragrafo)."""
+    for r in rects:
+        h = r.height
+        page.add_redact_annot(pymupdf.Rect(r.x0 - 0.5, r.y0 + 0.15 * h, r.x1 + 0.5, r.y1 - 0.15 * h), fill=False)
     page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE,
                           graphics=getattr(pymupdf, "PDF_REDACT_LINE_ART_NONE", 0))
 
@@ -278,28 +416,85 @@ def _space_below(page: pymupdf.Page, rect: pymupdf.Rect) -> float:
     return max(0.0, limit - rect.y1)
 
 
-def replace_block(doc: pymupdf.Document, block: TextBlock, new_text: str, fontsize: float | None = None,
-                  color=None, align: str | None = None) -> dict:
-    """Riscrive un paragrafo con riflusso. Ritorna informazioni su font e adattamento."""
-    page = doc[block.page]
-    size = fontsize or block.size
-    color = block.color if color is None else color
-    choice = FontResolver(doc).choose(page, block.font, block.flags, new_text)
-    inner = pymupdf.Rect(block.bbox.x0 + 0.5, block.bbox.y0 + 0.5, block.bbox.x1 - 0.5, block.bbox.y1 - 0.5)
-    free_below = _space_below(page, block.bbox)
-    _remove_text(page, inner)
-    if not new_text.strip():
-        return {"font": choice.label, "source": choice.source, "scale": 1.0}
+def map_styles(block: TextBlock, new_text: str) -> list[tuple[str, int]]:
+    """Assegna uno stile a ogni carattere del testo nuovo confrontandolo con il vecchio:
+    i caratteri rimasti tengono il loro stile, quelli nuovi prendono lo stile del carattere
+    vicino (come in Word, dove si scrive con la formattazione del punto in cui si è)."""
+    import difflib
+    old = block.text
+    old_styles = block.char_styles()
+    main = block.styles.index(next(s for s in block.styles if s.font == block.font and
+                                   abs(s.size - block.size) < 0.05)) if block.styles else 0
+    styles: list[int] = []
+    sm = difflib.SequenceMatcher(None, old, new_text, autojunk=False)
+    for op, i1, i2, j1, j2 in sm.get_opcodes():
+        if op == "equal":
+            styles.extend(old_styles[i1:i2])
+        elif op == "replace":
+            span = old_styles[i1:i2] or [main]
+            styles.extend(span[min(k, len(span) - 1)] for k in range(j2 - j1))
+        elif op == "insert":
+            # Stile del carattere precedente; a inizio paragrafo quello del successivo
+            ref = old_styles[i1 - 1] if i1 > 0 else (old_styles[0] if old_styles else main)
+            if i1 > 0 and old[i1 - 1] == " " and i1 < len(old):
+                ref = old_styles[i1]  # dopo uno spazio si prosegue con la parola che segue
+            styles.extend([ref] * (j2 - j1))
+    runs: list[tuple[str, int]] = []
+    for ch, sid in zip(new_text, styles):
+        if runs and runs[-1][1] == sid:
+            runs[-1] = (runs[-1][0] + ch, sid)
+        else:
+            runs.append((ch, sid))
+    return runs
 
+
+def replace_block(doc: pymupdf.Document, block: TextBlock, new_text, fontsize: float | None = None,
+                  color=None, align: str | None = None) -> dict:
+    """Riscrive un paragrafo con riflusso mantenendo la formattazione di ogni parte.
+
+    ``new_text`` è il testo nuovo (gli stili vengono ricavati confrontandolo con il vecchio)
+    oppure direttamente l'elenco di run ``[(testo, indice stile), …]`` dell'editor."""
+    page = doc[block.page]
+    runs = map_styles(block, new_text) if isinstance(new_text, str) else [r for r in new_text if r[0]]
+    plain = "".join(t for t, _s in runs)
+    styles = list(block.styles) or [TextStyle(block.font, block.size, block.color, block.flags)]
+    factor = (fontsize / block.size) if fontsize else 1.0
+    free_below = _space_below(page, block.bbox)
+    _remove_lines(page, block.extra.get("line_rects") or [block.bbox])
+    resolver = FontResolver(doc)
+    if not plain.strip():
+        return {"font": block.font, "source": "incorporato", "scale": 1.0, "fits": True}
+
+    # Un font per ogni stile usato, scelto in base ai caratteri che deve scrivere
+    used = sorted({sid for _t, sid in runs})
     arch = pymupdf.Archive()
-    ext = "otf" if choice.buffer[:4] == b"OTTO" else "ttf"
-    arch.add(choice.buffer, f"f.{ext}")
-    css = (f"@font-face {{font-family: PSF; src: url(f.{ext});}} "
-           f"* {{font-family: PSF; font-size: {size:.2f}px; color: {_css_color(color)}; "
-           f"line-height: {block.line_height:.3f}; margin: 0; padding: 0;}} "
-           f"p {{text-align: {align or block.align};}}")
-    html = f"<div>{_html_escape(new_text)}</div>"
-    css = css.replace("p {text-align", "div {text-align")
+    families: dict[int, str] = {}
+    faces = []
+    added: dict[str, str] = {}
+    sources = []
+    for sid in used:
+        st = styles[sid]
+        text_for = "".join(t for t, s in runs if s == sid)
+        choice = resolver.choose(page, st.font, st.flags, text_for)
+        choice = FontChoice(choice.alias, without_ligatures(choice.buffer), choice.source, choice.label)
+        sources.append(choice.source)
+        if choice.alias not in added:
+            ext = "otf" if choice.buffer[:4] == b"OTTO" else "ttf"
+            fname = f"f{len(added)}.{ext}"
+            arch.add(choice.buffer, fname)
+            added[choice.alias] = f"F{len(added)}"
+            faces.append(f"@font-face {{font-family: {added[choice.alias]}; src: url({fname});}}")
+        families[sid] = added[choice.alias]
+    parts = []
+    for t, sid in runs:
+        st = styles[sid]
+        c = st.color if color is None else color
+        parts.append(f'<span style="font-family: {families[sid]}; font-size: {st.size * factor:.2f}px; '
+                     f'color: {_css_color(c)}">{_html_escape(t)}</span>')
+    pitch = (block.pitch or block.size * block.line_height) * factor
+    css = (" ".join(faces) + f" * {{margin: 0; padding: 0;}} "
+           f"div {{text-align: {align or block.align}; line-height: {pitch:.2f}px;}}")
+    html = f"<div>{''.join(parts)}</div>"
     rect = pymupdf.Rect(block.bbox.x0, block.bbox.y0, block.bbox.x1 + 1, block.bbox.y1 + 1)
     # Calibra la posizione su una pagina di prova: la prima riga deve cadere sulla
     # stessa linea di base e allo stesso margine sinistro del paragrafo originale
@@ -314,7 +509,8 @@ def replace_block(doc: pymupdf.Document, block: TextBlock, new_text: str, fontsi
         if spare < 0:
             spare, scale = page.insert_htmlbox(taller, html, css=css, archive=arch, scale_low=0.5,
                                                rotate=rotate)
-    return {"font": choice.label, "source": choice.source, "scale": scale, "fits": spare >= 0}
+    worst = "standard" if "standard" in sources else "sistema" if "sistema" in sources else "incorporato"
+    return {"font": block.font, "source": worst, "scale": scale, "fits": spare >= 0}
 
 
 def _calibrate(page: pymupdf.Page, rect: pymupdf.Rect, html: str, css: str, arch, origin: pymupdf.Point):

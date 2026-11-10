@@ -8,6 +8,8 @@ keyring>=24,<26
 # File firmati .p7m
 asn1crypto==1.5.1
 cryptography==50.0.1
+# Modifica del testo (rimozione delle legature dai font)
+fonttools==4.67.0
 # Esportazione DXF
 ezdxf==1.4.5
 # Esportazione in Word (.docx)

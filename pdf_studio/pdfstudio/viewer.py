@@ -114,7 +114,7 @@ class PageView(QGraphicsView):
     selectionChanged = Signal(bool)
     documentEdited = Signal()
     # (pagina, blocco, nuovo testo) al termine della modifica diretta di un paragrafo
-    inlineEditFinished = Signal(int, object, str)
+    inlineEditFinished = Signal(int, object, object)  # pagina, paragrafo, parti [(testo, stile)]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -660,10 +660,15 @@ class PageView(QGraphicsView):
         item.setFont(font)
         item.setDefaultTextColor(QColor.fromRgbF(*block.color))
         item.document().setDocumentMargin(0)
-        item.setPlainText(block.text)
         item.setTextWidth(rect.width() + 2)
+        # Ogni parte del paragrafo con il suo stile (grassetto, corsivo, colore, dimensione):
+        # il testo digitato prende lo stile del punto in cui si scrive, come in Word
+        cur = QTextCursor(item.document())
+        for text, sid in (block.runs or [(block.text, 0)]):
+            cur.insertText(text, self._run_format(block, sid))
         fmt = QTextBlockFormat()
-        fmt.setLineHeight(block.line_height * 100, QTextBlockFormat.LineHeightTypes.ProportionalHeight.value)
+        pitch = (block.pitch or block.size * block.line_height) * self.zoom
+        fmt.setLineHeight(pitch, QTextBlockFormat.LineHeightTypes.FixedHeight.value)
         fmt.setAlignment({"center": Qt.AlignHCenter, "right": Qt.AlignRight,
                           "justify": Qt.AlignJustify}.get(block.align, Qt.AlignLeft))
         cur = QTextCursor(item.document())
@@ -687,14 +692,51 @@ class PageView(QGraphicsView):
         self.setFocus()
         item.setFocus()
 
+    STYLE_PROPERTY = 0x100000 + 1  # QTextFormat.UserProperty + 1: indice dello stile originale
+
+    def _run_format(self, block, sid: int):
+        from PySide6.QtGui import QTextCharFormat
+        st = block.styles[sid] if block.styles else None
+        f = QTextCharFormat()
+        qf = QFont(qt_font_family(st.font if st else block.font))
+        qf.setPixelSize(max(4, round((st.size if st else block.size) * self.zoom)))
+        qf.setBold(st.bold if st else block.bold)
+        qf.setItalic(st.italic if st else block.italic)
+        f.setFont(qf)
+        f.setForeground(QColor.fromRgbF(*(st.color if st else block.color)))
+        f.setProperty(self.STYLE_PROPERTY, sid)
+        return f
+
+    @classmethod
+    def _editor_runs(cls, document) -> list[tuple[str, int]]:
+        """Testo dell'editor diviso in parti con l'indice dello stile di ciascuna."""
+        runs: list[tuple[str, int]] = []
+        cur = QTextCursor(document)
+        n = document.characterCount() - 1  # l'ultimo carattere è il separatore finale
+        last = 0
+        for pos in range(n):
+            cur.setPosition(pos)
+            cur.setPosition(pos + 1, QTextCursor.KeepAnchor)
+            ch = cur.selectedText()
+            ch = "\n" if ch in ("\u2029", "\u2028") else ch
+            sid = cur.charFormat().property(cls.STYLE_PROPERTY)
+            sid = last if sid is None else int(sid)
+            last = sid
+            if runs and runs[-1][1] == sid:
+                runs[-1] = (runs[-1][0] + ch, sid)
+            else:
+                runs.append((ch, sid))
+        return runs
+
     def commit_inline_edit(self) -> None:
         if self._inline is None:
             return
         index, block, bg, item = self._inline
-        text = item.toPlainText()
+        runs = self._editor_runs(item.document())
+        text = "".join(t for t, _s in runs)
         self._remove_inline()
         if text.strip() != block.text.strip():
-            self.inlineEditFinished.emit(index, block, text)
+            self.inlineEditFinished.emit(index, block, runs)
 
     def cancel_inline_edit(self) -> None:
         if self._inline is not None:

@@ -1,12 +1,18 @@
-## CRN PDF Studio 1.6.0
+## CRN PDF Studio 1.6.1
 
 Lettore ed editor PDF per Windows.
 
 ### Download
-- **CRNPDFStudio-Setup-1.6.0.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
-- **CRNPDFStudio-portabile-1.6.0.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
+- **CRNPDFStudio-Setup-1.6.1.exe** — installer (consigliato): menu Start, icona sul desktop, associazione facoltativa di `.pdf` e `.p7m`.
+- **CRNPDFStudio-portabile-1.6.1.zip** — versione da scompattare e avviare con `CRNPDFStudio.exe`, senza installazione.
 
 Al primo avvio Windows può mostrare «Windows ha protetto il PC» (programma senza firma digitale): *Ulteriori informazioni → Esegui comunque*.
+
+### Correzioni della 1.6.1 — modifica del testo
+- **La formattazione resta quella del PDF**: modificando un paragrafo, grassetti, corsivi, colori e dimensioni di ogni parola vengono mantenuti; il testo nuovo prende lo stile delle parole vicine (come in Word). Anche l'editor sulla pagina mostra già la formattazione originale.
+- **Paragrafi riconosciuti correttamente** anche nei PDF di Word e LibreOffice, dove ogni riga è un pezzo separato (prima veniva riscritta solo la prima riga).
+- Il testo modificato resta **ricercabile e copiabile** (le legature tipografiche come «tt», «ti» venivano scritte come simboli illeggibili).
+- Se il font originale non è disponibile, il sostituto rispetta la famiglia (es. Calibri → senza grazie, non più Times).
 
 ### Novità della 1.6
 - **Nuova finestra di stampa con anteprima** (File → Stampa, Ctrl+P): a destra l'anteprima del foglio con carta, margini e pagina come uscirà, sfogliabile pagina per pagina.

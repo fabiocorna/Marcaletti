@@ -47,14 +47,29 @@ def rgb_from_int(value: int) -> tuple[float, float, float]:
     return (((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255)
 
 
+_SANS = ("arial", "helvetica", "calibri", "carlito", "verdana", "tahoma", "segoe", "liberationsans",
+         "dejavusans", "opensans", "roboto", "lato", "trebuchet", "century gothic", "centurygothic", "frutiger",
+         "myriad", "gill", "futura", "sans")
+_SERIF = ("times", "georgia", "garamond", "cambria", "caladea", "palatino", "bookantiqua", "book antiqua",
+          "liberationserif", "dejavuserif", "minion", "baskerville", "constantia", "serif", "roman")
+
+
 def guess_base14(font: str, flags: int) -> str:
-    """Sceglie il font base-14 più simile a quello originale di uno span."""
+    """Sceglie il font base-14 più simile a quello originale di uno span.
+    La famiglia si deduce prima dal nome (il flag «serif» dei PDF spesso è sbagliato)."""
     name = font.lower()
     bold = bool(flags & 16) or "bold" in name or "black" in name or "heavy" in name
     italic = bool(flags & 2) or "italic" in name or "oblique" in name
-    if bool(flags & 8) or "courier" in name or "mono" in name:
+    if bool(flags & 8) or "courier" in name or "mono" in name or "consolas" in name:
         return "cobo" if bold else "cour"
-    if bool(flags & 4) or "times" in name or "serif" in name and "sans" not in name or "roman" in name:
+    compact = name.replace(" ", "").replace("-", "")
+    if any(k in compact for k in _SANS) and "serif" not in compact.replace("sansserif", ""):
+        serif = False
+    elif any(k in compact for k in _SERIF):
+        serif = True
+    else:
+        serif = bool(flags & 4)
+    if serif:
         if bold and italic:
             return "tibi"
         return "tibo" if bold else ("tiit" if italic else "tiro")

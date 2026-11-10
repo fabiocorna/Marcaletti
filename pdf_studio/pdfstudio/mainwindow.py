@@ -1494,8 +1494,6 @@ class MainWindow(QMainWindow):
                 if block is not None:
                     self.tab().view.start_inline_edit(page, block)
                     msg = "Modifica il testo, poi clicca fuori dal riquadro (Ctrl+Invio) per applicare, Esc per annullare"
-                    if block.extra.get("mixed_styles"):
-                        msg += " — il paragrafo ha stili misti: verrà usato lo stile prevalente"
                     self.statusBar().showMessage(msg, 15000)
                     return
                 tool = "edit_text_dialog"
@@ -1604,7 +1602,7 @@ class MainWindow(QMainWindow):
         if msg:
             self.statusBar().showMessage(msg, 6000)
 
-    def _inline_edit_done(self, page: int, block, text: str) -> None:
+    def _inline_edit_done(self, page: int, block, text) -> None:
         d = self.doc()
         if not d:
             return
