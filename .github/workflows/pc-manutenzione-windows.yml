@@ -1,0 +1,70 @@
+name: CRN Manutenzione PC - collaudo Windows
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "pc_manutenzione/**"
+      - ".github/workflows/pc-manutenzione-windows.yml"
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Pubblica una GitHub Release con lo zip del programma"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  collaudo:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: pc_manutenzione
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test con Windows PowerShell 5.1
+        shell: powershell
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\Test-Manutenzione.ps1
+
+      - name: Test con PowerShell 7
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File tests\Test-Manutenzione.ps1
+
+      - name: Collaudo della finestra
+        shell: powershell
+        run: |
+          $out = "$env:RUNNER_TEMP\collaudo.html"
+          $p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File', 'CRNManutenzione.ps1', '-Collaudo', "`"$out`"" -PassThru
+          if (-not $p.WaitForExit(600000)) { $p.Kill(); throw 'Collaudo bloccato (finestra di errore?)' }
+          if (Test-Path "$out.errore.txt") { Get-Content "$out.errore.txt"; throw 'Errore nella finestra' }
+          if ($p.ExitCode -ne 0) { throw "Uscita con codice $($p.ExitCode)" }
+          if (-not (Test-Path $out)) { throw 'Report non creato' }
+          Write-Host "Report creato: $((Get-Item $out).Length) byte"
+
+      - name: Pacchetto
+        id: pkg
+        shell: powershell
+        run: |
+          $v = (Select-String -Path CRNManutenzione.psm1 -Pattern "Versione = '([^']+)'").Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+          New-Item -ItemType Directory -Force dist\CRNManutenzione | Out-Null
+          Copy-Item CRNManutenzione.ps1, CRNManutenzione.psm1, 'Avvia CRN Manutenzione.bat', README.md dist\CRNManutenzione
+          Compress-Archive -Path dist\CRNManutenzione -DestinationPath "dist\CRNManutenzione-$v.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CRNManutenzione
+          path: pc_manutenzione/dist/CRNManutenzione
+
+      - name: Pubblica release
+        if: inputs.release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: manutenzione-v${{ steps.pkg.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: CRN Manutenzione PC ${{ steps.pkg.outputs.version }}
+          files: pc_manutenzione/dist/CRNManutenzione-*.zip
