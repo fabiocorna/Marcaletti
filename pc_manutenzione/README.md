@@ -29,6 +29,8 @@ Il primo intervento dell'elenco crea un **punto di ripristino**, così si può s
 | Pulizia | Cestino | Lo svuota |
 | Pulizia | Cache di Chrome, Edge, Brave, Firefox | La svuota (non tocca cronologia, password, preferiti); salta i browser aperti |
 | Pulizia | Rapporti errori e file di dump | Li elimina |
+| Pulizia | Cache di Teams, Discord e delle schede video | La svuota (salta le app aperte) |
+| Pulizia | Vecchia installazione di Windows (Windows.old) | Apre Pulizia disco per eliminarla |
 | Pulizia | File di installazione degli aggiornamenti | Elimina i download già usati da Windows Update |
 | Pulizia | Vecchi componenti di Windows | Pulizia con DISM (finestra separata) |
 | Aggiornamenti | Windows Update | Elenca gli aggiornamenti mancanti e apre Windows Update |

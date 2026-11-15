@@ -35,7 +35,7 @@ Import-Module (Join-Path $radice 'CRNManutenzione.psm1') -Force -DisableNameChec
 
 # --- Elenco dei controlli -------------------------------------------------------
 $controlli = @(Get-ControlliPC)
-Assert-Vero ($controlli.Count -ge 22) "$($controlli.Count) controlli definiti"
+Assert-Vero ($controlli.Count -ge 24) "$($controlli.Count) controlli definiti"
 $ids = @($controlli | ForEach-Object { $_.Id })
 Assert-Vero (@($ids | Select-Object -Unique).Count -eq $ids.Count) 'identificativi univoci'
 Assert-Vero ($ids[0] -eq 'puntoripristino') 'il punto di ripristino viene creato per primo'
@@ -138,7 +138,7 @@ Assert-Vero ($nomi[0] -eq 'Mozilla Firefox (x64 it)' -and $nomi[3] -eq 'Discord'
 Assert-Vero (@(ConvertFrom-OutputWinget -Righe @('No installed package found matching input criteria.')).Count -eq 0) 'winget: nessun aggiornamento'
 
 # --- Interventi innocui ----------------------------------------------------------------
-foreach ($id in 'temp', 'dump', 'cestino', 'rete') {
+foreach ($id in 'temp', 'dump', 'cestino', 'appcache', 'rete') {
     $c = $controlli | Where-Object { $_.Id -eq $id }
     $r = Invoke-CorrezioneControllo -Controllo $c
     Write-Host "      $id -> $($r.Messaggio)"

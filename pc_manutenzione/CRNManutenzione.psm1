@@ -10,7 +10,7 @@
 #   Admin                    l'analisi richiede i privilegi di amministratore
 #   AdminCorreggi            l'intervento richiede i privilegi di amministratore
 
-$script:Versione = '1.1.0'
+$script:Versione = '1.2.0'
 $script:CallbackAttesa = $null
 $script:OrdineStati = @{ 'OK' = 0; 'Info' = 1; 'Attenzione' = 2; 'Problema' = 3; 'Errore' = 4 }
 
@@ -254,6 +254,19 @@ function Get-PercorsiCacheBrowser {
     }
 }
 
+function Get-PercorsiCacheApp {
+    $app = @(
+        @{ Nome = 'Microsoft Teams'; Processo = 'ms-teams'; Percorsi = @("$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\Default\Cache", "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\Default\Code Cache") },
+        @{ Nome = 'Teams classico'; Processo = 'Teams'; Percorsi = @("$env:APPDATA\Microsoft\Teams\Cache", "$env:APPDATA\Microsoft\Teams\Code Cache", "$env:APPDATA\Microsoft\Teams\GPUCache", "$env:APPDATA\Microsoft\Teams\Service Worker\CacheStorage") },
+        @{ Nome = 'Discord'; Processo = 'Discord'; Percorsi = @("$env:APPDATA\discord\Cache", "$env:APPDATA\discord\Code Cache", "$env:APPDATA\discord\GPUCache") },
+        @{ Nome = 'cache grafica (DirectX, NVIDIA, AMD)'; Processo = ''; Percorsi = @("$env:LOCALAPPDATA\D3DSCache", "$env:LOCALAPPDATA\NVIDIA\DXCache", "$env:LOCALAPPDATA\NVIDIA\GLCache", "$env:LOCALAPPDATA\AMD\DxCache", "$env:LOCALAPPDATA\AMD\DxcCache") }
+    )
+    foreach ($a in $app) {
+        $esistenti = @($a.Percorsi | Where-Object { Test-Path -LiteralPath $_ })
+        if ($esistenti.Count -gt 0) { [pscustomobject]@{ Nome = $a.Nome; Processo = $a.Processo; Percorsi = $esistenti } }
+    }
+}
+
 function Get-PercorsiDump {
     @(
         "$env:LOCALAPPDATA\CrashDumps",
@@ -470,6 +483,48 @@ function Get-ControlliPC {
                 $m = "Liberati $(Format-Dimensione $tot)"
                 if ($saltati) { $m += ". Non puliti perché aperti: $($saltati -join ', ') (chiudili e riprova)" }
                 New-Intervento $m $tot ($fatti.Count -gt 0 -or $saltati.Count -eq 0)
+            }
+        },
+        @{
+            Id = 'appcache'; Categoria = 'Pulizia'; Nome = 'Cache delle app'
+            Azione = 'Svuota la cache di Teams, Discord e delle schede video'; Tipo = 'Automatica'; Admin = $false; AdminCorreggi = $false
+            Analizza = {
+                $tot = [long]0; $parti = @()
+                foreach ($a in @(Get-PercorsiCacheApp)) {
+                    $d = Get-DimensioneCartella -Percorso $a.Percorsi
+                    $tot += $d
+                    if ($d -gt 0) { $parti += "$($a.Nome) $(Format-Dimensione $d)" }
+                }
+                if ($tot -eq 0) { return New-Esito 'OK' 'Nessuna cache delle app da svuotare' }
+                $testo = "$(Format-Dimensione $tot) di cache: $($parti -join ', ')"
+                if ($tot -ge 1GB) { return New-Esito 'Attenzione' $testo $tot }
+                New-Esito 'Info' $testo $tot
+            }
+            Correggi = {
+                $tot = [long]0; $saltati = @()
+                foreach ($a in @(Get-PercorsiCacheApp)) {
+                    if ($a.Processo -and (Get-Process -Name $a.Processo -ErrorAction SilentlyContinue)) { $saltati += $a.Nome; continue }
+                    $tot += (Remove-ContenutoCartella -Percorso $a.Percorsi).Byte
+                }
+                $m = "Liberati $(Format-Dimensione $tot)"
+                if ($saltati) { $m += ". Non puliti perché aperti: $($saltati -join ', ')" }
+                New-Intervento $m $tot
+            }
+        },
+        @{
+            Id = 'windowsold'; Categoria = 'Pulizia'; Nome = 'Vecchia installazione di Windows'
+            Azione = 'Apre Pulizia disco per eliminarla'; Tipo = 'Apri'; Admin = $false; AdminCorreggi = $false
+            Analizza = {
+                $p = Join-Path "$env:SystemDrive\" 'Windows.old'
+                if (-not (Test-Path -LiteralPath $p)) { return New-Esito 'OK' 'Nessuna vecchia installazione di Windows' }
+                Initialize-CrnDisco
+                $b = [long]([CrnDisco]::Misura($p)[0])
+                $testo = "La cartella Windows.old occupa $(Format-Dimensione $b): serve solo per tornare alla versione precedente di Windows"
+                New-Esito 'Attenzione' "$testo. In Pulizia disco scegli «Pulizia file di sistema» e poi «Installazioni precedenti di Windows»" $b
+            }
+            Correggi = {
+                Start-Process -FilePath 'cleanmgr.exe' -ArgumentList "/d $($env:SystemDrive.TrimEnd(':'))"
+                New-Intervento 'Aperta Pulizia disco: premi «Pulizia file di sistema» e seleziona «Installazioni precedenti di Windows»'
             }
         },
         @{
@@ -1310,7 +1365,7 @@ function Clear-VocePrivacy {
 # --- Strumenti: pulizia programmata ---------------------------------------------
 
 $script:NomeAttivita = 'CRN Manutenzione PC - pulizia settimanale'
-$script:InterventiProgrammabili = @('temp', 'cestino', 'browser', 'dump', 'wucache')
+$script:InterventiProgrammabili = @('temp', 'cestino', 'browser', 'appcache', 'dump', 'wucache')
 $script:GiorniSettimana = @(
     @{ Nome = 'lunedì'; Valore = 'Monday'; Bit = 2 }, @{ Nome = 'martedì'; Valore = 'Tuesday'; Bit = 4 },
     @{ Nome = 'mercoledì'; Valore = 'Wednesday'; Bit = 8 }, @{ Nome = 'giovedì'; Valore = 'Thursday'; Bit = 16 },
