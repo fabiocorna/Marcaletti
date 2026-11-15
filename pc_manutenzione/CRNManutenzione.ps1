@@ -384,6 +384,29 @@ $form.Add_FormClosing({
         }
     })
 
+# Controlla che pulsanti ed etichette mostrino tutto il testo e che nessun controllo esca dal contenitore
+function Test-Impaginazione($Contenitore) {
+    foreach ($c in $Contenitore.Controls) {
+        if (-not $c.Visible) { continue }
+        $nome = "$($c.GetType().Name) «$($c.Text)»"
+        $area = $Contenitore.ClientRectangle
+        if (-not ($Contenitore -is [System.Windows.Forms.FlowLayoutPanel] -and $Contenitore.WrapContents -eq $false)) {
+            if ($c.Right -gt $area.Width + 1 -or $c.Bottom -gt $area.Height + 1 -or $c.Left -lt 0 -or $c.Top -lt 0) {
+                if (-not $Contenitore.AutoScroll) { "$nome esce da $($Contenitore.GetType().Name) ($($c.Bounds) in $area)" }
+            }
+        }
+        if (($c -is [System.Windows.Forms.Button] -or $c -is [System.Windows.Forms.Label]) -and $c.Text) {
+            $misura = [System.Windows.Forms.TextRenderer]::MeasureText($c.Text, $c.Font)
+            if ($c -is [System.Windows.Forms.Button]) {
+                if ($misura.Width + 10 -gt $c.Width) { "${nome}: testo più largo del pulsante ($($misura.Width) > $($c.Width))" }
+            } elseif (-not $c.AutoSize -and $misura.Width -gt $c.Width -and $c.MaximumSize.Width -eq 0) {
+                "${nome}: testo tagliato ($($misura.Width) > $($c.Width))"
+            }
+        }
+        if ($c.Controls.Count -gt 0 -and -not ($c -is [System.Windows.Forms.ListView])) { Test-Impaginazione $c }
+    }
+}
+
 if ($Collaudo) {
     # Collaudo automatico: apre la finestra, analizza (salvo i controlli lenti), salva il report e chiude
     $form.Add_Shown({
@@ -399,7 +422,8 @@ if ($Collaudo) {
                 if ($lblDoppi.Text -like 'Errore*') { throw "File doppi: $($lblDoppi.Text)" }
                 if ($lvProg.Items.Count -eq 0) { throw 'Nessun programma installato letto' }
                 if ($lvPrivacy.Items.Count -eq 0) { throw 'Nessuna voce di privacy' }
-                # Foto di ogni scheda per il controllo visivo
+                # Foto di ogni scheda e controllo automatico dell'impaginazione
+                $difetti = @(Test-Impaginazione $intest) + @(Test-Impaginazione $barra)
                 $n = 0
                 foreach ($t in $schede.TabPages) {
                     $n++
@@ -409,7 +433,9 @@ if ($Collaudo) {
                     $form.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle(0, 0, $form.Width, $form.Height)))
                     $bmp.Save("$Collaudo-scheda$n.png", [System.Drawing.Imaging.ImageFormat]::Png)
                     $bmp.Dispose()
+                    $difetti += @(Test-Impaginazione $t)
                 }
+                if ($difetti.Count -gt 0) { throw "Problemi di impaginazione:`n$($difetti -join "`n")" }
                 Add-Content -LiteralPath $Collaudo -Value "<!-- disco: $($lvDisco.Items.Count) voci; programmi: $($lvProg.Items.Count); privacy: $($lvPrivacy.Items.Count) -->" -Encoding UTF8
             } catch {
                 Set-Content -LiteralPath "$Collaudo.errore.txt" -Value $_.ToString() -Encoding UTF8
