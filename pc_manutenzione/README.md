@@ -64,7 +64,8 @@ Il primo intervento dell'elenco crea un **punto di ripristino**, così si può s
   `%LOCALAPPDATA%\CRN Manutenzione PC\pulizia.log`. Il programma deve restare nella cartella
   da cui è stata attivata.
 
-Il programma **non** tocca documenti, foto, password, cronologia e impostazioni, **non** "pulisce
+Di sua iniziativa il programma **non** tocca documenti, foto, password, cronologia e impostazioni
+(la cronologia si cancella solo se la scegli nella scheda Privacy), **non** "pulisce
 il registro" e **non** disattiva servizi di Windows: sono operazioni che di solito fanno più danni
 che benefici.
 
