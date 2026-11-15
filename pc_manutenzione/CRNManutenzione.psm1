@@ -492,7 +492,7 @@ function Get-ControlliPC {
             Analizza = {
                 $b = Get-DimensioneCartella -Percorso "$env:windir\SoftwareDistribution\Download"
                 if (Get-Command Get-DeliveryOptimizationPerfSnap -ErrorAction SilentlyContinue) {
-                    try { $b += [long](Get-DeliveryOptimizationPerfSnap -ErrorAction Stop).CacheSizeBytes } catch { }
+                    try { $b += [long](Get-DeliveryOptimizationPerfSnap -ErrorAction Stop -WarningAction SilentlyContinue).CacheSizeBytes } catch { }
                 }
                 if ($b -ge 1GB) { return New-Esito 'Attenzione' "$(Format-Dimensione $b) di file degli aggiornamenti da eliminare" $b }
                 if ($b -gt 0) { return New-Esito 'Info' "$(Format-Dimensione $b) di file degli aggiornamenti da eliminare" $b }
@@ -505,7 +505,7 @@ function Get-ControlliPC {
                 $tot = [long]0
                 if (Get-Command Delete-DeliveryOptimizationCache -ErrorAction SilentlyContinue) {
                     try {
-                        $do = [long](Get-DeliveryOptimizationPerfSnap -ErrorAction Stop).CacheSizeBytes
+                        $do = [long](Get-DeliveryOptimizationPerfSnap -ErrorAction Stop -WarningAction SilentlyContinue).CacheSizeBytes
                         Delete-DeliveryOptimizationCache -Force -ErrorAction Stop
                         $tot += $do
                     } catch { }

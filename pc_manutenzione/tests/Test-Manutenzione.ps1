@@ -14,7 +14,7 @@ function Assert-Vero {
 Write-Host "PowerShell $($PSVersionTable.PSVersion) - amministratore: $(([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrators'))"
 
 # --- Sintassi e codifica --------------------------------------------------------
-foreach ($f in Get-ChildItem -LiteralPath $radice -Recurse -File -Include *.ps1, *.psm1) {
+foreach ($f in @(Get-ChildItem -LiteralPath $radice -Recurse -File | Where-Object { '.ps1', '.psm1' -contains $_.Extension })) {
     $tok = $null; $err = $null
     [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tok, [ref]$err)
     $dett = ($err | ForEach-Object { "$($_.Message) (riga $($_.Extent.StartLineNumber))" }) -join '; '
@@ -78,10 +78,10 @@ foreach ($v in $vecchi) { [IO.File]::WriteAllBytes($v, (New-Object byte[] 1000))
 [IO.File]::WriteAllBytes("$prova\nuova\recente2.tmp", (New-Object byte[] 500))
 $solaLettura = "$prova\sub\solalettura.tmp"
 [IO.File]::WriteAllBytes($solaLettura, (New-Object byte[] 1000))
-(Get-Item $solaLettura).Attributes = 'ReadOnly'
 $vecchi += $solaLettura
 $data = (Get-Date).AddDays(-3)
 foreach ($v in $vecchi) { (Get-Item $v).LastWriteTime = $data }
+(Get-Item $solaLettura).Attributes = 'ReadOnly'
 (Get-Item "$prova\sub\profonda").CreationTime = $data
 (Get-Item "$prova\sub").CreationTime = $data
 
