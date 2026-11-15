@@ -1,0 +1,597 @@
+<!doctype html>
+<!-- PROTOTYPE - NOT FOR PRODUCTION -->
+<!-- Question: La luce che si consuma e si ricarica solo alle fiamme trasforma un platform rilassato in percorsi da ragionare? -->
+<!-- Date: 2026-11-15 -->
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lanterna</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { font-variant-numeric: tabular-nums; }
+  canvas { display: block; margin: 0 auto; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script src="config.js"></script>
+<script>
+'use strict';
+// Lanterna: a lantern crosses a dark cave. Every step and every jump spends light; flames refill
+// it once per life, braziers refill it and save the spot. An empty lantern goes back to the brazier.
+
+// ---- Built to be checked ----------------------------------------------------------------
+const params = new URLSearchParams(location.search);
+const tune = new Proxy({}, { get: (_, k) => CONFIG[k].value }); // live: tune.speed is CONFIG.speed.value
+const STEP = 1 / 60;            // simulation step in seconds; motion is per second, never per frame
+const W = 1280, H = 720;        // logical size
+const PIXEL = false;
+const FONT = 'Georgia, "Times New Roman", serif';
+const TITLE = 'Lanterna';
+const CONTROLS = ['Frecce o A/D: muoviti', 'Spazio, Su o W: salta (tieni premuto per saltare più in alto)',
+  'R: torna al braciere', 'P: pausa   ·   M: muto'];
+const clock = window.GAME_CLOCK || { now: () => performance.now() / 1000 }; // a check may inject one
+const CHEAP = params.get('render') === 'cheap';
+let seed;
+function rng() { // mulberry32; every gameplay random call reads this, never Math.random
+  seed = (seed + 0x6D2B79F5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), seed | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+const events = []; // window.game.events: anything the game wants a run to see
+function hash(a, b) { // fixed per-tile detail for drawing; not gameplay
+  let h = Math.imul(a * 374761393 + b * 668265263, 1274126177);
+  h ^= h >>> 13; h = Math.imul(h, 1103515245);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// ---- Screen ---------------------------------------------------------------------------
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const dark = document.createElement('canvas'); dark.width = W; dark.height = H;
+const dctx = dark.getContext('2d');
+function fit() {
+  const k = Math.min(innerWidth / W, innerHeight / H);
+  const s = PIXEL ? Math.max(1, Math.floor(k)) : k;
+  const r = PIXEL ? 1 : s * (devicePixelRatio || 1);
+  canvas.width = Math.round(W * r); canvas.height = Math.round(H * r);
+  canvas.style.width = Math.round(W * s) + 'px'; canvas.style.height = Math.round(H * s) + 'px';
+  canvas.style.marginTop = Math.max(0, Math.floor((innerHeight - H * s) / 2)) + 'px';
+  canvas.style.imageRendering = PIXEL ? 'pixelated' : 'auto';
+  ctx.setTransform(r, 0, 0, r, 0, 0); ctx.imageSmoothingEnabled = !PIXEL;
+}
+addEventListener('resize', fit); fit();
+function clear(c) { ctx.fillStyle = c; ctx.fillRect(0, 0, W, H); }
+function text(s, x, y, size, c, align = 'center') {
+  ctx.fillStyle = c; ctx.font = `${size}px ${FONT}`; ctx.textAlign = align;
+  ctx.textBaseline = 'middle'; ctx.fillText(s, x, y);
+}
+
+// ---- Input ------------------------------------------------------------------------------
+const down = new Set(), hit = new Set();
+const pressed = code => hit.has(code);
+addEventListener('keydown', e => {
+  startAudio();
+  if (!e.repeat) { down.add(e.code); hit.add(e.code); }
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+});
+addEventListener('keyup', e => down.delete(e.code));
+addEventListener('pointerdown', () => startAudio());
+addEventListener('blur', () => down.clear());
+const held = (...c) => c.some(k => down.has(k));
+const tapped = (...c) => c.some(k => hit.has(k));
+
+// ---- Audio ------------------------------------------------------------------------------
+let audio = null, muted = false;
+function startAudio() {
+  if (!audio) {
+    const ac = window.GAME_AUDIO || new (window.AudioContext || window.webkitAudioContext)();
+    const out = ac.createGain(); out.gain.value = muted ? 0 : tune.volume;
+    out.connect(ac.destination); audio = { ac, out };
+  }
+  if (audio.ac.state === 'suspended') audio.ac.resume();
+}
+function setMuted(m) { muted = m; if (audio) audio.out.gain.value = m ? 0 : tune.volume; }
+addEventListener('tune', () => setMuted(muted));
+function tone(freq, dur, type = 'square', vol = 0.3, delay = 0) {
+  if (!audio || muted) return;
+  const t = audio.ac.currentTime + delay, o = audio.ac.createOscillator(), g = audio.ac.createGain();
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g).connect(audio.out); o.start(t); o.stop(t + dur);
+}
+const sfx = {
+  jump() { tone(330, 0.12, 'triangle', 0.18); tone(495, 0.1, 'triangle', 0.1, 0.03); },
+  land() { tone(110, 0.08, 'sine', 0.2); },
+  flame() { [523, 659, 784].forEach((f, i) => tone(f, 0.35, 'sine', 0.16, i * 0.06)); },
+  brazier() { [392, 523, 659, 784].forEach((f, i) => tone(f, 0.6, 'sine', 0.14, i * 0.08)); },
+  spark() { tone(1046, 0.25, 'sine', 0.15); tone(1568, 0.3, 'sine', 0.08, 0.05); },
+  die() { tone(196, 0.5, 'sawtooth', 0.12); tone(98, 0.7, 'sine', 0.2, 0.1); },
+  win() { [392, 494, 587, 784, 988].forEach((f, i) => tone(f, 0.8, 'sine', 0.13, i * 0.12)); },
+  low() { tone(880, 0.06, 'sine', 0.06); },
+};
+
+// ---- The cave (tile units, T px a tile) -------------------------------------------------
+const T = 40, COLS = 158, ROWS = 30;
+const WORLD_W = COLS * T, WORLD_H = ROWS * T;
+// [x, y, w, h] in tiles: the top of a rect is the ground you stand on.
+const SOLIDS = [
+  [0, 14, 10, 16], [13, 14, 9, 16], [22, 12, 8, 18],             // the way in
+  // the high road: ledges over a bed of crystal spikes
+  [33, 12, 3, 7], [38, 11, 3, 1], [43, 12, 2, 1], [47, 10, 3, 1], [52, 11, 4, 1],
+  [58, 12, 2, 1], [62, 10, 3, 1], [67, 11, 3, 1], [72, 12, 2, 1], [76, 12, 3, 1],
+  [81, 12, 26, 7],                                               // where the high road lands
+  [36, 17, 45, 2],                                               // the tunnel's roof
+  [28, 24, 86, 6],                                               // the low road's floor
+  [48, 23, 2, 1], [75, 23, 2, 1], [86, 22, 2, 2],                // rocks in the tunnel
+  [110, 21, 4, 1], [107, 18, 3, 1], [110, 15, 4, 1],             // the climb out
+  [114, 12, 12, 18],                                             // second brazier
+  [129, 11, 3, 1], [134, 10, 3, 1], [139, 11, 3, 1],
+  [144, 12, 14, 18],                                             // the door
+].map(([x, y, w, h]) => ({ x: x * T, y: y * T, w: w * T, h: h * T }));
+const SPIKE_TILES = [];
+for (let x = 36; x <= 80; x++) SPIKE_TILES.push([x, 16]);       // under the high road
+SPIKE_TILES.push([57, 23], [58, 23], [99, 23], [100, 23]);       // on the tunnel floor
+const SPIKES = SPIKE_TILES.map(([x, y]) => ({ x: x * T + 7, y: y * T + T * 0.5, w: T - 14, h: T * 0.5, tx: x, ty: y }));
+// a thing stands on row r: its centre is a little above that ground
+const FLAME_AT = [[19, 14], [54, 11], [84, 12], [40, 24], [66, 24], [92, 24], [135, 10]];
+const BRAZIER_AT = [[3, 14], [27, 12], [117, 12]];
+const SPARK_AT = [[48.5, 6.6], [60.5, 8.6], [70.5, 8.2]];
+const DOOR = { x: 152 * T, y: 12 * T - 92, w: 56, h: 92 };
+const SIGNS = [
+  { x: 6.5 * T, y: 9.6 * T, lines: ['Ogni passo e ogni salto', 'consumano luce.'] },
+  { x: 6.5 * T, y: 10.6 * T + 24, lines: ['Ferma, la fiamma riposa.'] },
+  { x: 25.5 * T, y: 8.6 * T, lines: ['In alto: corto e buio.', 'Giù nel pozzo: lungo, più fiamme.'] },
+];
+const LOW_ZONE = { x0: 30 * T, x1: 114 * T, y0: 19 * T };
+
+// ---- State ------------------------------------------------------------------------------
+let scene, state;
+function makeThings() {
+  return {
+    flames: FLAME_AT.map(([x, y], i) => ({ id: i, x: (x + 0.5) * T, y: y * T, taken: false })),
+    braziers: BRAZIER_AT.map(([x, y], i) => ({ id: i, x: (x + 0.5) * T, y: y * T, lit: i === 0 })),
+    sparks: SPARK_AT.map(([x, y], i) => ({ id: i, x: x * T, y: y * T, got: false })),
+  };
+}
+function reset() {
+  seed = Number(params.get('seed')) || CONFIG.seed;
+  const th = makeThings();
+  state = {
+    t: 0, score: 0, gained: '', deaths: 0, high: false, low: false, won: false,
+    ...th, checkpoint: 0,
+    p: null, cam: { x: 0, y: 0 }, msg: '', msgT: 0, lowWarn: 0,
+  };
+  spawn();
+  state.cam.x = clamp(state.p.x - W * 0.4, 0, WORLD_W - W);
+  state.cam.y = clamp(state.p.y - H * 0.55, 0, WORLD_H - H);
+}
+function spawn() {
+  const b = state.braziers[state.checkpoint];
+  state.p = {
+    x: b.x + 30, y: b.y - 30, w: 22, h: 30, vx: 0, vy: 0, onGround: true,
+    coyote: 0, buffer: 0, light: tune.light_max, dead: 0, face: 1, squash: 0, tilt: 0, alive: true,
+  };
+  state.flames.forEach(f => { f.taken = false; });            // flames come back with each life
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+function say(m, s = 2.5) { state.msg = m; state.msgT = s; }
+
+// ---- Physics ----------------------------------------------------------------------------
+function solidAt(box) {
+  if (box.x < 0 || box.x + box.w > WORLD_W) return true;
+  for (const s of SOLIDS) if (overlap(box, s)) return s;
+  return null;
+}
+function moveX(p, dx) {
+  p.x += dx;
+  const s = solidAt(p);
+  if (!s) return;
+  if (s === true) { p.x = clamp(p.x, 0, WORLD_W - p.w); }
+  else p.x = dx > 0 ? s.x - p.w - 0.001 : s.x + s.w + 0.001;
+  p.vx = 0;
+}
+function moveY(p, dy) {
+  p.y += dy;
+  const s = solidAt(p);
+  p.onGround = false;
+  if (!s || s === true) return;
+  if (dy > 0) { p.y = s.y - p.h - 0.001; p.onGround = true; }
+  else p.y = s.y + s.h + 0.001;
+  p.vy = 0;
+}
+function die(cause) {
+  const p = state.p;
+  if (!p.alive) return;
+  p.alive = false; p.dead = 0; state.deaths++;
+  events.push({ type: 'death', cause, x: Math.round(p.x / T), t: +state.t.toFixed(2) });
+  sfx.die();
+  say(cause === 'light' ? 'La lanterna si è spenta.' : cause === 'spikes' ? 'I cristalli hanno rotto il vetro.' : 'Caduta nel buio.', 2);
+}
+
+function updatePlay(dt) {
+  const p = state.p;
+  state.t += dt;
+  if (state.msgT > 0) state.msgT -= dt;
+  if (!p.alive) {
+    p.dead += dt;
+    if (p.dead >= tune.respawn_delay) spawn();
+    return;
+  }
+  if (pressed('KeyR')) { die('back'); state.deaths--; return; }
+  const left = held('ArrowLeft', 'KeyA'), right = held('ArrowRight', 'KeyD');
+  const want = (right ? 1 : 0) - (left ? 1 : 0);
+  const sp = tune.speed * T, ac = tune.accel * T;
+  if (want) { p.vx = clamp(p.vx + want * ac * dt, -sp, sp); p.face = want; }
+  else { const d = ac * dt; p.vx = Math.abs(p.vx) <= d ? 0 : p.vx - Math.sign(p.vx) * d; }
+
+  // forgiving jump: coyote time and a buffered press
+  p.coyote = p.onGround ? tune.coyote : p.coyote - dt;
+  p.buffer = tapped('Space', 'ArrowUp', 'KeyW') ? tune.jump_buffer : p.buffer - dt;
+  const g = tune.gravity * T;
+  if (p.buffer > 0 && p.coyote > 0) {
+    p.vy = -Math.sqrt(2 * g * tune.jump_height * T);
+    p.buffer = 0; p.coyote = 0; p.onGround = false; p.squash = -0.25;
+    p.light -= tune.light_per_jump;
+    events.push({ type: 'jump', x: +(p.x / T).toFixed(1), light: Math.round(p.light) });
+    sfx.jump();
+  }
+  const jumpHeld = held('Space', 'ArrowUp', 'KeyW');
+  if (p.vy < 0 && !jumpHeld) p.vy *= Math.pow(tune.jump_cut, dt * 20); // short hop when let go
+  p.vy += g * (p.vy > 0 ? tune.fall_mult : 1) * dt;
+  p.vy = Math.min(p.vy, 26 * T);
+
+  const x0 = p.x, wasGround = p.onGround, fallV = p.vy;
+  moveX(p, p.vx * dt);
+  moveY(p, p.vy * dt);
+  if (p.onGround && !wasGround && fallV > 300) { p.squash = Math.min(0.35, fallV / 2600); sfx.land(); }
+  p.squash *= Math.pow(0.0005, dt);
+  p.tilt += ((-p.vx / (tune.speed * T)) * 0.25 - p.tilt) * Math.min(1, dt * 8);
+
+  // light: spent by sideways travel and by jumps; standing still spends nothing
+  p.light -= Math.abs(p.x - x0) / T * tune.light_per_tile;
+  if (p.light < tune.light_max * 0.25) {
+    state.lowWarn -= dt;
+    if (state.lowWarn <= 0) { sfx.low(); state.lowWarn = 0.25 + p.light / tune.light_max * 3; }
+  }
+
+  if (p.x > LOW_ZONE.x0 && p.x < LOW_ZONE.x1 && p.y > LOW_ZONE.y0) state.low = true;
+  if (p.onGround && p.y < 13 * T && p.x > 32 * T && p.x < 80 * T) state.high = true;
+
+  const body = { x: p.x + 2, y: p.y + 4, w: p.w - 4, h: p.h - 4 };       // fair hurtbox
+  for (const f of state.flames) {
+    if (!f.taken && Math.abs(f.x - (p.x + p.w / 2)) < 26 && Math.abs(f.y - 20 - (p.y + p.h / 2)) < 34) {
+      f.taken = true; p.light = tune.light_max; sfx.flame(); say('Lanterna piena.', 1.2);
+      events.push({ type: 'flame', id: f.id });
+    }
+  }
+  state.braziers.forEach((b, i) => {
+    if (Math.abs(b.x - (p.x + p.w / 2)) < 34 && Math.abs(b.y - 24 - (p.y + p.h / 2)) < 40) {
+      if (p.light < tune.light_max - 0.5 || i !== state.checkpoint) p.light = tune.light_max;
+      if (i !== state.checkpoint) {
+        state.checkpoint = i; b.lit = true; sfx.brazier(); say('Braciere acceso: si riparte da qui.', 2.2);
+        events.push({ type: 'checkpoint', id: i });
+      }
+    }
+  });
+  for (const s of state.sparks) {
+    if (!s.got && Math.abs(s.x - (p.x + p.w / 2)) < 26 && Math.abs(s.y - (p.y + p.h / 2)) < 30) {
+      s.got = true; state.score++; sfx.spark(); say(`Scintilla ${state.score}/3`, 1.4);
+      events.push({ type: 'spark', id: s.id });
+    }
+  }
+  if (p.light <= 0) { p.light = 0; die('light'); return; }
+  for (const s of SPIKES) if (overlap(body, s)) { die('spikes'); return; }
+  if (p.y > WORLD_H + 40) { die('fall'); return; }
+  if (overlap(p, DOOR)) {
+    state.won = true;
+    const road = state.high && state.low ? 'entrambe le vie' : state.high ? 'la via alta' : state.low ? 'la via bassa' : 'nessuna delle due vie';
+    state.gained = `Fuori dalla caverna in ${fmtTime(state.t)}`;
+    state.road = road;
+    events.push({ type: 'win', t: +state.t.toFixed(1), deaths: state.deaths, sparks: state.score, road });
+    sfx.win(); scene = 'results';
+  }
+}
+function fmtTime(t) { const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; }
+
+function updateCamera(dt) {
+  const p = state.p, c = state.cam;
+  const tx = clamp(p.x + p.w / 2 - W / 2 + p.face * 140, 0, WORLD_W - W);   // look ahead
+  const ty = clamp(p.y + p.h / 2 - H * 0.55, 0, WORLD_H - H);
+  c.x += (tx - c.x) * Math.min(1, dt * 3);
+  c.y += (ty - c.y) * Math.min(1, dt * (Math.abs(ty - c.y) > 200 ? 5 : 2.5));
+}
+
+// ---- Drawing ----------------------------------------------------------------------------
+const PAL = {
+  bg0: '#07080f', bg1: '#11152a', far: '#161b31', stone: '#2b3142', stoneTop: '#566079',
+  stoneDark: '#1b1f2c', crack: '#1a1e29', crystal: '#9fd6ff', crystalDark: '#3f6d93',
+  glow: '255,190,110', flame0: '#fff3c4', flame1: '#ffb347', flame2: '#e5572b',
+  iron: '#3c3a3f', ironHi: '#77737a', glass: '#ffcf7a', chalk: '#c9c2b0', spark: '#bff4ff',
+};
+const FAR = [];
+{ let h = 0; for (let i = 0; i < 90; i++) { h = hash(i, 7); FAR.push({ x: i * 110 + h * 60, len: 60 + hash(i, 3) * 200, w: 30 + hash(i, 5) * 50 }); } }
+
+function drawBackground(cam) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, PAL.bg1); g.addColorStop(1, PAL.bg0);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = PAL.far;
+  const px = cam.x * 0.35, py = cam.y * 0.2;
+  for (const s of FAR) {                     // far stalactites and stalagmites, parallax
+    const x = s.x - px % (110 * 90);
+    if (x < -100 || x > W + 100) continue;
+    ctx.beginPath(); ctx.moveTo(x - s.w / 2, -py); ctx.lineTo(x, s.len - py); ctx.lineTo(x + s.w / 2, -py); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x + 40 - s.w / 2, H + 80 - py); ctx.lineTo(x + 40, H + 80 - s.len * 0.7 - py); ctx.lineTo(x + 40 + s.w / 2, H + 80 - py); ctx.fill();
+  }
+}
+function drawRock(s) {
+  ctx.fillStyle = PAL.stone; ctx.fillRect(s.x, s.y, s.w, s.h);
+  const tx0 = s.x / T, ty0 = s.y / T;
+  for (let i = 0; i < s.w / T; i++) for (let j = 0; j < Math.min(s.h / T, 6); j++) {
+    const h = hash(tx0 + i, ty0 + j);
+    ctx.fillStyle = h > 0.5 ? PAL.stoneDark : PAL.crack;
+    if (h > 0.62) ctx.fillRect(s.x + i * T + h * 22, s.y + j * T + 10 + h * 14, 8 + h * 10, 3);
+    if (h < 0.18) { ctx.beginPath(); ctx.arc(s.x + i * T + 20, s.y + j * T + 22, 3 + h * 10, 0, 7); ctx.fill(); }
+  }
+  ctx.fillStyle = PAL.stoneTop; ctx.fillRect(s.x, s.y, s.w, 5);                  // worn top edge
+  ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(s.x, s.y + 5, s.w, 3);
+  ctx.fillStyle = PAL.stoneDark; ctx.fillRect(s.x, s.y, 3, s.h); ctx.fillRect(s.x + s.w - 3, s.y, 3, s.h);
+}
+function drawSpike(tx, ty) {
+  const x = tx * T, y = (ty + 1) * T;
+  const hs = [0.55, 0.9, 0.65];
+  for (let k = 0; k < 3; k++) {
+    const cx = x + 8 + k * 12, h = T * hs[(k + tx) % 3];
+    ctx.fillStyle = PAL.crystalDark;
+    ctx.beginPath(); ctx.moveTo(cx - 7, y); ctx.lineTo(cx, y - h); ctx.lineTo(cx + 7, y); ctx.fill();
+    ctx.fillStyle = PAL.crystal;
+    ctx.beginPath(); ctx.moveTo(cx - 2, y); ctx.lineTo(cx, y - h); ctx.lineTo(cx + 4, y); ctx.fill();
+  }
+}
+function drawFlameShape(x, y, s, t) { // a small fire, base at (x, y), height about 34*s
+  const f = Math.sin(t * 13 + x) * 0.12 + Math.sin(t * 7.3 + x * 0.3) * 0.08;
+  const layers = [[PAL.flame2, 1], [PAL.flame1, 0.72], [PAL.flame0, 0.42]];
+  for (const [c, k] of layers) {
+    const h = 34 * s * k * (1 + f), w = 13 * s * k;
+    ctx.fillStyle = c; ctx.beginPath();
+    ctx.moveTo(x - w, y);
+    ctx.bezierCurveTo(x - w * 1.1, y - h * 0.5, x - w * 0.2 + f * 8, y - h * 0.7, x + f * 10, y - h);
+    ctx.bezierCurveTo(x + w * 0.3, y - h * 0.6, x + w * 1.1, y - h * 0.45, x + w, y);
+    ctx.closePath(); ctx.fill();
+  }
+}
+function drawFlameStand(f, t) {
+  // a stone dish on a short stem
+  ctx.fillStyle = PAL.stoneTop; ctx.fillRect(f.x - 4, f.y - 10, 8, 10);
+  ctx.beginPath(); ctx.ellipse(f.x, f.y - 12, 16, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = PAL.stoneDark; ctx.beginPath(); ctx.ellipse(f.x, f.y - 13, 12, 3, 0, 0, Math.PI * 2); ctx.fill();
+  if (!f.taken) drawFlameShape(f.x, f.y - 13, 0.9, t);
+  else { ctx.fillStyle = '#7a3b22'; for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(f.x + i * 5, f.y - 14, 2, 0, 7); ctx.fill(); } }
+}
+function drawBrazier(b, t) {
+  ctx.fillStyle = PAL.iron;
+  ctx.fillRect(b.x - 3, b.y - 30, 6, 30);
+  ctx.beginPath(); ctx.moveTo(b.x - 18, b.y); ctx.lineTo(b.x - 3, b.y - 14); ctx.lineTo(b.x + 3, b.y - 14); ctx.lineTo(b.x + 18, b.y); ctx.lineTo(b.x + 13, b.y); ctx.lineTo(b.x, b.y - 8); ctx.lineTo(b.x - 13, b.y); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(b.x - 22, b.y - 44); ctx.lineTo(b.x + 22, b.y - 44); ctx.lineTo(b.x + 14, b.y - 28); ctx.lineTo(b.x - 14, b.y - 28); ctx.fill();
+  ctx.fillStyle = PAL.ironHi; ctx.fillRect(b.x - 22, b.y - 46, 44, 3);
+  if (b.lit) drawFlameShape(b.x, b.y - 44, 1.25, t);
+  else { ctx.fillStyle = '#4a2a1c'; ctx.fillRect(b.x - 14, b.y - 48, 28, 4); }
+}
+function drawSpark(s, t) {
+  if (s.got) return;
+  const y = s.y + Math.sin(t * 2.5 + s.id) * 5, r = 9 + Math.sin(t * 6 + s.id) * 1.5;
+  ctx.fillStyle = PAL.spark;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4 + t * 0.8, rr = i % 2 ? r * 0.38 : r; ctx.lineTo(s.x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(s.x, y, 2.5, 0, 7); ctx.fill();
+}
+function drawDoor(t) {
+  const d = DOOR;
+  ctx.fillStyle = '#1a120c'; ctx.beginPath();
+  ctx.moveTo(d.x - 8, d.y + d.h); ctx.lineTo(d.x - 8, d.y + 28); ctx.arc(d.x + d.w / 2, d.y + 28, d.w / 2 + 8, Math.PI, 0); ctx.lineTo(d.x + d.w + 8, d.y + d.h); ctx.fill();
+  const g = ctx.createLinearGradient(0, d.y, 0, d.y + d.h);
+  g.addColorStop(0, '#fff7da'); g.addColorStop(1, '#ffc768');
+  ctx.fillStyle = g; ctx.beginPath();
+  ctx.moveTo(d.x, d.y + d.h); ctx.lineTo(d.x, d.y + 28); ctx.arc(d.x + d.w / 2, d.y + 28, d.w / 2, Math.PI, 0); ctx.lineTo(d.x + d.w, d.y + d.h); ctx.fill();
+  ctx.fillStyle = 'rgba(120,80,40,0.5)'; ctx.fillRect(d.x + d.w / 2 - 1, d.y + 4, 2, d.h - 4);
+}
+function drawSigns() {
+  for (const s of SIGNS) s.lines.forEach((l, i) => text(l, s.x, s.y + i * 26, 20, PAL.chalk));
+}
+function drawLantern(p, t) {
+  const cx = p.x + p.w / 2, base = p.y + p.h;
+  ctx.save(); ctx.translate(cx, base); ctx.rotate(p.tilt);
+  const sq = p.squash; ctx.scale(1.3 * (1 + sq * 0.6), 1.3 * (1 - sq)); // drawn larger than its hurtbox
+  const lv = p.alive ? clamp(p.light / tune.light_max, 0, 1) : 0;
+  // handle ring
+  ctx.strokeStyle = PAL.ironHi; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, -38, 7, Math.PI, 0); ctx.stroke();
+  // cap and base
+  ctx.fillStyle = PAL.iron;
+  ctx.beginPath(); ctx.moveTo(-14, -30); ctx.lineTo(0, -40); ctx.lineTo(14, -30); ctx.fill();
+  ctx.fillRect(-14, -4, 28, 4); ctx.fillRect(-12, -32, 24, 3);
+  // glass
+  ctx.fillStyle = lv > 0 ? `rgba(255,${150 + 60 * lv | 0},90,${0.35 + 0.5 * lv})` : '#2a2620';
+  ctx.fillRect(-11, -29, 22, 25);
+  if (lv > 0) drawFlameShape(0, -6, 0.25 + 0.4 * lv, t);
+  // frame bars
+  ctx.fillStyle = PAL.iron; ctx.fillRect(-12, -29, 3, 25); ctx.fillRect(9, -29, 3, 25); ctx.fillRect(-1.5, -29, 3, 25);
+  ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(-7, -26, 2, 14);
+  // two small eyes on the base plate, looking where it goes
+  ctx.fillStyle = '#e8e0c8'; ctx.fillRect(-6 + p.face * 2, -3, 3, 2); ctx.fillRect(3 + p.face * 2, -3, 3, 2);
+  ctx.restore();
+}
+function lightHole(x, y, r, a) {
+  const g = dctx.createRadialGradient(x, y, r * 0.15, x, y, r);
+  g.addColorStop(0, `rgba(0,0,0,${a})`); g.addColorStop(0.6, `rgba(0,0,0,${a * 0.75})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+  dctx.fillStyle = g; dctx.beginPath(); dctx.arc(x, y, r, 0, Math.PI * 2); dctx.fill();
+}
+function drawDarkness(cam, t) {
+  const p = state.p;
+  dctx.globalCompositeOperation = 'source-over'; dctx.clearRect(0, 0, W, H);
+  dctx.fillStyle = 'rgba(3,4,9,0.94)'; dctx.fillRect(0, 0, W, H);
+  dctx.globalCompositeOperation = 'destination-out';
+  const lv = p.alive ? clamp(p.light / tune.light_max, 0, 1) : Math.max(0, 1 - p.dead * 4) * 0.1;
+  const flick = 1 + Math.sin(t * 17) * 0.015 + Math.sin(t * 5.1) * 0.02;
+  if (p.alive || lv > 0) lightHole(p.x + p.w / 2 - cam.x, p.y + p.h / 2 - 12 - cam.y, (tune.view_min + (tune.view_max - tune.view_min) * lv) * flick, 1);
+  for (const f of state.flames) if (!f.taken) lightHole(f.x - cam.x, f.y - 24 - cam.y, 120 * flick, 0.9);
+  for (const b of state.braziers) lightHole(b.x - cam.x, b.y - 50 - cam.y, (b.lit ? 210 : 70) * flick, b.lit ? 1 : 0.5);
+  for (const s of state.sparks) if (!s.got) lightHole(s.x - cam.x, s.y - cam.y, 55, 0.8);
+  lightHole(DOOR.x + DOOR.w / 2 - cam.x, DOOR.y + 40 - cam.y, 260, 1);
+  for (const s of SIGNS) lightHole(s.x - cam.x, s.y + 14 - cam.y, 190, 0.65);
+  ctx.drawImage(dark, 0, 0, W, H);
+  // warm tint around the lantern
+  const g = ctx.createRadialGradient(p.x - cam.x, p.y - cam.y, 0, p.x - cam.x, p.y - cam.y, 260 * lv + 20);
+  g.addColorStop(0, `rgba(${PAL.glow},${0.16 * lv})`); g.addColorStop(1, `rgba(${PAL.glow},0)`);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+function drawWorld(t) {
+  const cam = state.cam, cx = Math.round(cam.x), cy = Math.round(cam.y);
+  drawBackground(cam);
+  ctx.save(); ctx.translate(-cx, -cy);
+  const vis = s => s.x + s.w > cx - 50 && s.x < cx + W + 50 && s.y + s.h > cy - 50 && s.y < cy + H + 50;
+  for (const s of SOLIDS) if (vis(s)) drawRock(s);
+  for (const [tx, ty] of SPIKE_TILES) if (tx * T > cx - T && tx * T < cx + W) drawSpike(tx, ty);
+  drawDoor(t);
+  drawSigns();
+  state.flames.forEach(f => drawFlameStand(f, t));
+  state.braziers.forEach(b => drawBrazier(b, t));
+  state.sparks.forEach(s => drawSpark(s, t));
+  const p = state.p;
+  if (p.alive || p.dead < 0.3) drawLantern(p, t);
+  if (!p.alive) { // glass shards
+    ctx.fillStyle = PAL.glass;
+    for (let i = 0; i < 6; i++) { const a = i * 1.05, d = p.dead * 140; ctx.fillRect(p.x + 11 + Math.cos(a) * d, p.y + 10 + Math.sin(a) * d * 0.6 + p.dead * p.dead * 300, 4, 4); }
+  }
+  ctx.restore();
+  drawDarkness(cam, t);
+}
+function drawHUD() {
+  const p = state.p, lv = clamp(p.light / tune.light_max, 0, 1);
+  ctx.fillStyle = 'rgba(10,10,16,0.7)'; ctx.fillRect(16, 14, 330, 54);
+  text('Luce', 30, 41, 22, PAL.chalk, 'left');
+  ctx.fillStyle = '#2a2620'; ctx.fillRect(88, 30, 240, 22);
+  const low = lv < 0.25;
+  ctx.fillStyle = low ? (Math.sin(state.t * 12) > 0 ? '#ff7a45' : '#b8431f') : '#ffc768';
+  ctx.fillRect(88, 30, 240 * lv, 22);
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  for (let i = 1; i < 10; i++) ctx.fillRect(88 + i * 24, 30, 1, 22);   // each notch is a tenth of a lantern
+  ctx.fillStyle = 'rgba(10,10,16,0.7)'; ctx.fillRect(W - 300, 14, 284, 54);
+  text(`Scintille ${state.score}/3`, W - 286, 41, 22, PAL.spark, 'left');
+  text(fmtTime(state.t), W - 30, 41, 22, PAL.chalk, 'right');
+  if (state.msgT > 0) {
+    ctx.globalAlpha = clamp(state.msgT, 0, 1);
+    text(state.msg, W / 2, H - 56, 26, '#ffe3b0');
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ---- Scenes ------------------------------------------------------------------------------
+const scenes = {
+  figures: {
+    update(dt) { state.t += dt; },
+    draw() {
+      clear('#1a1d2b');
+      const t = state.t, y = 420;
+      const items = [
+        ['Lanterna (tu)', () => drawLantern({ x: 129, y: y - 30, w: 22, h: 30, light: tune.light_max, alive: true, face: 1, squash: 0, tilt: 0 }, t)],
+        ['Fiamma', () => drawFlameStand({ x: 340, y, taken: false }, t)],
+        ['Fiamma presa', () => drawFlameStand({ x: 540, y, taken: true }, t)],
+        ['Braciere', () => drawBrazier({ x: 740, y, lit: true }, t)],
+        ['Cristalli', () => { ctx.save(); ctx.translate(920 - 33 * T + 20 - 20, y - 17 * T); drawSpike(33, 16); ctx.restore(); }],
+        ['Scintilla', () => drawSpark({ x: 1120, y: y - 30, got: false, id: 0 }, t)],
+      ];
+      items.forEach(([name, f], i) => { f(); text(name, 140 + i * 200, y + 50, 22, '#e8e0c8'); });
+    },
+  },
+  title: {
+    update(dt) {
+      state.t += dt;
+      if (pressed('Enter') || pressed('Space')) { reset(); scene = 'play'; }
+    },
+    draw() {
+      clear(PAL.bg0);
+      const t = state.t;
+      const g = ctx.createRadialGradient(W / 2, H / 3 + 40, 10, W / 2, H / 3 + 40, 420);
+      g.addColorStop(0, 'rgba(255,190,110,0.25)'); g.addColorStop(1, 'rgba(255,190,110,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      ctx.save(); ctx.translate(W / 2 - 11, H / 3 - 90); ctx.scale(1, 1);
+      drawLantern({ x: 0, y: 0, w: 22, h: 30, light: tune.light_max, alive: true, face: 1, squash: 0, tilt: Math.sin(t * 1.5) * 0.08 }, t);
+      ctx.restore();
+      text(TITLE, W / 2, H / 3 + 10, 72, '#ffe3b0');
+      text('Attraversa la caverna. La luce è il tuo cammino.', W / 2, H / 3 + 70, 26, PAL.chalk);
+      CONTROLS.forEach((c, i) => text(c, W / 2, H / 2 + 70 + i * 36, 22, '#a9a390'));
+      text('Invio per iniziare', W / 2, H - 50, 28, '#ffe3b0');
+    },
+  },
+  play: {
+    update(dt) {
+      if (pressed('KeyP') || pressed('Escape')) { scene = 'pause'; return; }
+      updatePlay(dt); updateCamera(dt);
+    },
+    draw() { drawWorld(state.t); drawHUD(); },
+  },
+  pause: {
+    update() { if (pressed('KeyP') || pressed('Escape')) scene = 'play'; },
+    draw() {
+      scenes.play.draw();
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, W, H);
+      text('Pausa', W / 2, H / 2, 52, '#ffe3b0'); text('P per riprendere', W / 2, H / 2 + 50, 24, PAL.chalk);
+    },
+  },
+  results: {
+    update(dt) { state.t2 = (state.t2 || 0) + dt; if (pressed('Enter')) { reset(); scene = 'play'; } },
+    draw() {
+      drawWorld(state.t);
+      ctx.fillStyle = 'rgba(8,8,14,0.78)'; ctx.fillRect(W / 2 - 330, H / 2 - 150, 660, 300);
+      text(state.gained, W / 2, H / 2 - 95, 40, '#ffe3b0');
+      text(`Hai preso ${state.road}`, W / 2, H / 2 - 35, 26, PAL.chalk);
+      text(`Scintille ${state.score}/3   ·   Lanterne spente ${state.deaths}`, W / 2, H / 2 + 10, 26, PAL.spark);
+      text('La prossima volta, prova l’altra via.', W / 2, H / 2 + 60, 22, '#a9a390');
+      text('Invio per rigiocare', W / 2, H / 2 + 110, 24, '#ffe3b0');
+    },
+  },
+};
+
+// ---- Loop: fixed step, frame time clamped ---------------------------------------------
+function step() {
+  if (pressed('KeyM')) { setMuted(!muted); hit.delete('KeyM'); }
+  scenes[scene].update(STEP); hit.clear();
+}
+let last, acc = 0, ALPHA = 1;
+function tick() {
+  const now = clock.now();
+  acc += Math.min(now - last, 0.25); last = now;
+  while (acc >= STEP) { step(); acc -= STEP; }
+  ALPHA = acc / STEP;
+  drawFrame();
+}
+function drawFrame() { scenes[scene].draw(); }
+function frame() { tick(); requestAnimationFrame(frame); }
+function timer() { if (document.visibilityState === 'visible' && clock.now() - last > 0.1) tick(); }
+
+// ---- What a check can read and drive (?manual=1 stops the loop; players never see it) ----
+window.game = {
+  get scene() { return scene; },
+  get state() { return state; },
+  press(code) { hit.add(code); },
+  hold(code, on) { on ? down.add(code) : down.delete(code); },
+  get events() { return events; },
+  step(n = 1, draw = true, alpha = 1) {
+    for (let i = 0; i < n; i++) step();
+    if (draw) { ALPHA = alpha; drawFrame(); }
+  },
+};
+
+reset();
+scene = params.get('scene') || 'title';
+last = clock.now();
+if (params.get('manual') === '1') drawFrame();
+else { requestAnimationFrame(frame); setInterval(timer, 50); }
+</script>
+</body>
+</html>
