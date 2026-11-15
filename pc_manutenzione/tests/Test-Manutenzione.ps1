@@ -35,7 +35,7 @@ Import-Module (Join-Path $radice 'CRNManutenzione.psm1') -Force -DisableNameChec
 
 # --- Elenco dei controlli -------------------------------------------------------
 $controlli = @(Get-ControlliPC)
-Assert-Vero ($controlli.Count -ge 20) "$($controlli.Count) controlli definiti"
+Assert-Vero ($controlli.Count -ge 22) "$($controlli.Count) controlli definiti"
 $ids = @($controlli | ForEach-Object { $_.Id })
 Assert-Vero (@($ids | Select-Object -Unique).Count -eq $ids.Count) 'identificativi univoci'
 Assert-Vero ($ids[0] -eq 'puntoripristino') 'il punto di ripristino viene creato per primo'
@@ -146,6 +146,92 @@ foreach ($id in 'temp', 'dump', 'cestino', 'rete') {
 }
 $r = Invoke-CorrezioneControllo -Controllo ($controlli | Where-Object { $_.Id -eq 'spazio' })
 Assert-Vero (-not $r.Riuscito) 'controllo senza intervento rifiutato'
+
+# --- Analisi disco ----------------------------------------------------------------------
+$disco = Join-Path $tmp 'disco'
+New-Item -ItemType Directory -Path "$disco\grande\sotto", "$disco\piccola" -Force | Out-Null
+[IO.File]::WriteAllBytes("$disco\grande\a.bin", (New-Object byte[] 30000))
+[IO.File]::WriteAllBytes("$disco\grande\sotto\b.bin", (New-Object byte[] 20000))
+[IO.File]::WriteAllBytes("$disco\piccola\c.bin", (New-Object byte[] 1000))
+[IO.File]::WriteAllBytes("$disco\sciolto.bin", (New-Object byte[] 500))
+cmd /c mklink /J "$disco\giunzione" "$esterna" | Out-Null
+$occ = @(Get-OccupazioneCartella -Percorso $disco)
+Assert-Vero ($occ.Count -eq 3) "analisi disco: $($occ.Count) voci (attese 3, giunzione esclusa)"
+Assert-Vero ($occ[0].Nome -eq 'grande' -and $occ[0].Byte -eq 50000 -and $occ[0].File -eq 2) 'analisi disco: cartella più grande per prima, con le sottocartelle'
+Assert-Vero ([Math]::Abs((($occ | Measure-Object Percentuale -Sum).Sum) - 100) -lt 0.01) 'analisi disco: percentuali che sommano a 100'
+Assert-Vero (@($occ | Where-Object { -not $_.Cartella }).Byte -eq 500) 'analisi disco: file sciolti contati a parte'
+$errore = $false
+try { Get-OccupazioneCartella -Percorso "$disco\non-esiste" | Out-Null } catch { $errore = $true }
+Assert-Vero $errore 'analisi disco: cartella inesistente segnalata'
+
+# --- File doppi ---------------------------------------------------------------------------
+$dop = Join-Path $tmp 'doppi'
+New-Item -ItemType Directory -Path "$dop\uno", "$dop\due", "$dop\AppData" -Force | Out-Null
+$grande = New-Object byte[] 200000
+(New-Object Random 7).NextBytes($grande)
+$diverso = [byte[]]$grande.Clone()
+$diverso[150000] = [byte](($diverso[150000] + 1) % 256)   # differisce solo dopo i primi 64 KB
+[IO.File]::WriteAllBytes("$dop\uno\foto.jpg", $grande)
+[IO.File]::WriteAllBytes("$dop\due\foto (copia).jpg", $grande)
+[IO.File]::WriteAllBytes("$dop\due\quasi.jpg", $diverso)
+[IO.File]::WriteAllBytes("$dop\AppData\foto.jpg", $grande)
+$piccolo = [Text.Encoding]::UTF8.GetBytes('ciao ' * 100)
+[IO.File]::WriteAllBytes("$dop\uno\nota.txt", $piccolo)
+[IO.File]::WriteAllBytes("$dop\due\nota.txt", $piccolo)
+(Get-Item "$dop\due\foto (copia).jpg").CreationTime = (Get-Date).AddDays(1)
+$gr = @(Find-FileDoppi -Percorso $dop -MinByte 1)
+Assert-Vero ($gr.Count -eq 2) "file doppi: $($gr.Count) gruppi (attesi 2)"
+$gFoto = $gr | Where-Object { $_.Dimensione -eq 200000 }
+Assert-Vero ($gFoto -and $gFoto.File.Count -eq 2) 'file doppi: il file quasi uguale e la cartella AppData sono esclusi'
+Assert-Vero ($gFoto.File[0].FullName -eq "$dop\uno\foto.jpg") 'file doppi: il più vecchio è il primo del gruppo'
+Assert-Vero ($gr[0].Sprecati -eq 200000) 'file doppi: ordinati per spazio sprecato'
+Assert-Vero (@(Find-FileDoppi -Percorso $dop -MinByte 1MB).Count -eq 0) 'file doppi: dimensione minima rispettata'
+$rc = Remove-FileNelCestino -Percorso @("$dop\due\foto (copia).jpg", "$dop\non-esiste.jpg")
+Assert-Vero ($rc.Spostati.Count -eq 1 -and $rc.Errori.Count -eq 1 -and -not (Test-Path "$dop\due\foto (copia).jpg")) 'file doppi: spostamento nel cestino'
+
+# --- Programmi installati -------------------------------------------------------------------
+$prog = @(Get-ProgrammiInstallati)
+Assert-Vero ($prog.Count -gt 5) "programmi installati: $($prog.Count)"
+Assert-Vero (@($prog | Where-Object { -not $_.Nome -or -not $_.Disinstalla }).Count -eq 0) 'programmi: nome e comando di disinstallazione presenti'
+$ps1 = (Get-Command powershell.exe).Source
+Assert-Vero ((Get-ComandoDisinstallazione 'MsiExec.exe /I{1234-AB}') -eq 'MsiExec.exe /X{1234-AB}') 'disinstallazione MSI con /X'
+Assert-Vero ((Get-ComandoDisinstallazione '"C:\a b\u.exe" /S') -eq '"C:\a b\u.exe" /S') 'disinstallazione già tra virgolette'
+Assert-Vero ((Get-ComandoDisinstallazione "$ps1 -x") -eq "`"$ps1`" -x") 'disinstallazione: percorso con spazi messo tra virgolette'
+
+# --- Privacy ----------------------------------------------------------------------------------
+$voci = @(Get-VociPrivacy)
+Assert-Vero (@($voci | Where-Object { $_.Id -like 'win-*' }).Count -eq 3) "privacy: $($voci.Count) voci"
+$priv = Join-Path $tmp 'privacy'
+New-Item -ItemType Directory -Path "$priv\Network" -Force | Out-Null
+[IO.File]::WriteAllBytes("$priv\Network\Cookies", (New-Object byte[] 700))
+[IO.File]::WriteAllBytes("$priv\Bookmarks", (New-Object byte[] 50))
+New-Item -Path 'HKCU:\Software\CRNTest\MRU' -Force | Out-Null
+Set-ItemProperty -Path 'HKCU:\Software\CRNTest\MRU' -Name a -Value 'notepad'
+$voce = New-VocePrivacy 'prova' 'Prova' 'prova' 'processo-che-non-esiste' @("$priv\Network\Cookies") @('HKCU:\Software\CRNTest\MRU')
+Assert-Vero ($voce.Byte -eq 700) 'privacy: dimensione calcolata'
+$rp = Clear-VocePrivacy -Voce $voce
+Assert-Vero ($rp.Riuscito -and -not (Test-Path "$priv\Network\Cookies") -and (Test-Path "$priv\Bookmarks")) 'privacy: cancellati solo i file indicati'
+Assert-Vero ((Test-Path 'HKCU:\Software\CRNTest\MRU') -and -not (Get-ItemProperty 'HKCU:\Software\CRNTest\MRU').a) 'privacy: cronologia nel registro svuotata'
+Remove-Item 'HKCU:\Software\CRNTest' -Recurse -Force
+$aperto = New-VocePrivacy 'p2' 'Aperto' 'x' ((Get-Process -Id $PID).ProcessName) @()
+Assert-Vero (-not (Clear-VocePrivacy -Voce $aperto).Riuscito) 'privacy: browser aperto non toccato'
+
+# --- Pulizia programmata ------------------------------------------------------------------------
+Remove-PuliziaProgrammata
+Assert-Vero ($null -eq (Get-PuliziaProgrammata)) 'pulizia automatica inizialmente assente'
+$pp = Set-PuliziaProgrammata -Giorno Wednesday -Ora '19:45' -Interventi temp, dump -Script (Join-Path $radice 'CRNManutenzione.ps1')
+Assert-Vero ($pp.Attiva -and $pp.Giorno -eq 'mercoledì' -and $pp.Ora -eq '19:45') "pulizia automatica creata: $($pp.Giorno) $($pp.Ora)"
+Assert-Vero (($pp.Interventi -join ',') -eq 'temp,dump') 'pulizia automatica: interventi registrati'
+$errore = $false
+try { Set-PuliziaProgrammata -Interventi winget -Script (Join-Path $radice 'CRNManutenzione.ps1') | Out-Null } catch { $errore = $true }
+Assert-Vero $errore 'pulizia automatica: interventi lunghi rifiutati'
+Start-PuliziaProgrammata
+$log = Get-PercorsoLog
+for ($i = 0; $i -lt 90 -and -not ((Test-Path $log) -and (Get-Content $log -Raw) -match 'Rapporti'); $i++) { Start-Sleep -Seconds 1 }
+Assert-Vero ((Test-Path $log) -and (Get-Content $log -Raw -Encoding UTF8) -match 'File temporanei') 'pulizia automatica eseguita e registrata nel log'
+if (Test-Path $log) { Get-Content $log -Encoding UTF8 | Out-Host }
+Remove-PuliziaProgrammata
+Assert-Vero ($null -eq (Get-PuliziaProgrammata)) 'pulizia automatica rimossa'
 
 # --- Riga di comando ---------------------------------------------------------------------
 $ps = (Get-Process -Id $PID).Path

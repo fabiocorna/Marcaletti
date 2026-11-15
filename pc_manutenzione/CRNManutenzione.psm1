@@ -10,7 +10,7 @@
 #   Admin                    l'analisi richiede i privilegi di amministratore
 #   AdminCorreggi            l'intervento richiede i privilegi di amministratore
 
-$script:Versione = '1.0.0'
+$script:Versione = '1.1.0'
 $script:CallbackAttesa = $null
 $script:OrdineStati = @{ 'OK' = 0; 'Info' = 1; 'Attenzione' = 2; 'Problema' = 3; 'Errore' = 4 }
 
@@ -1004,6 +1004,396 @@ $($righe -join "`n")
     $dir = Split-Path -Parent $Percorso
     if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     [IO.File]::WriteAllText($Percorso, $html, (New-Object Text.UTF8Encoding $true))
+}
+
+# --- Strumenti: analisi del disco e file doppi ---------------------------------
+
+# Cartelle mai esaminate nella ricerca dei file doppi: contengono file di programmi
+# e di Windows che devono restare dove sono anche se identici.
+$script:CartelleEscluseDoppi = @('AppData', 'Windows', 'Program Files', 'Program Files (x86)', 'ProgramData',
+    '$Recycle.Bin', 'System Volume Information', '$WINDOWS.~BT', '$Windows.~WS', 'node_modules', '.git')
+
+function Initialize-CrnDisco {
+    if ('CrnDisco' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Security.Cryptography;
+
+public static class CrnDisco
+{
+    private static FileSystemInfo[] Figli(DirectoryInfo d)
+    {
+        try { return d.GetFileSystemInfos(); }
+        catch { return new FileSystemInfo[0]; }
+    }
+
+    // Byte e numero di file di una cartella; non segue collegamenti e giunzioni.
+    public static long[] Misura(string percorso)
+    {
+        long byteTot = 0, file = 0;
+        Stack<DirectoryInfo> pila = new Stack<DirectoryInfo>();
+        pila.Push(new DirectoryInfo(percorso));
+        while (pila.Count > 0)
+        {
+            foreach (FileSystemInfo f in Figli(pila.Pop()))
+            {
+                if ((f.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+                DirectoryInfo sub = f as DirectoryInfo;
+                if (sub != null) { pila.Push(sub); continue; }
+                FileInfo fi = f as FileInfo;
+                if (fi != null) { byteTot += fi.Length; file++; }
+            }
+        }
+        return new long[] { byteTot, file };
+    }
+
+    // File di almeno minByte, escluse le cartelle con i nomi indicati.
+    public static List<FileInfo> ElencaFile(string percorso, long minByte, string[] escluse)
+    {
+        HashSet<string> nomi = new HashSet<string>(escluse ?? new string[0], StringComparer.OrdinalIgnoreCase);
+        List<FileInfo> elenco = new List<FileInfo>();
+        Stack<DirectoryInfo> pila = new Stack<DirectoryInfo>();
+        pila.Push(new DirectoryInfo(percorso));
+        while (pila.Count > 0)
+        {
+            foreach (FileSystemInfo f in Figli(pila.Pop()))
+            {
+                if ((f.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+                DirectoryInfo sub = f as DirectoryInfo;
+                if (sub != null) { if (!nomi.Contains(sub.Name)) pila.Push(sub); continue; }
+                FileInfo fi = f as FileInfo;
+                if (fi != null && fi.Length >= minByte) elenco.Add(fi);
+            }
+        }
+        return elenco;
+    }
+
+    // SHA-256 dei primi maxByte byte del file (tutto il file se maxByte <= 0).
+    public static string Impronta(string percorso, long maxByte)
+    {
+        using (FileStream fs = new FileStream(percorso, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        using (SHA256 sha = SHA256.Create())
+        {
+            byte[] buf = new byte[81920];
+            long rimasti = maxByte <= 0 ? long.MaxValue : maxByte;
+            int letti;
+            while (rimasti > 0 && (letti = fs.Read(buf, 0, (int)Math.Min(buf.Length, rimasti))) > 0)
+            {
+                sha.TransformBlock(buf, 0, letti, null, 0);
+                rimasti -= letti;
+            }
+            sha.TransformFinalBlock(new byte[0], 0, 0);
+            return BitConverter.ToString(sha.Hash).Replace("-", "");
+        }
+    }
+}
+'@
+}
+
+# Quanto occupa ogni sottocartella di una cartella (dalla più grande).
+function Get-OccupazioneCartella {
+    param([Parameter(Mandatory = $true)][string]$Percorso, [scriptblock]$Avanzamento)
+    Initialize-CrnDisco
+    $dir = New-Object IO.DirectoryInfo $Percorso
+    if (-not $dir.Exists) { throw "La cartella «$Percorso» non esiste" }
+    try { $figli = $dir.GetFileSystemInfos() } catch { throw "Accesso negato alla cartella «$Percorso»" }
+    $voci = @()
+    $byteFile = [long]0
+    $numFile = 0
+    foreach ($f in $figli) {
+        if ($f.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+        if ($f -is [IO.DirectoryInfo]) {
+            if ($Avanzamento) { & $Avanzamento $f.Name }
+            Invoke-Attesa
+            $m = [CrnDisco]::Misura($f.FullName)
+            $voci += [pscustomobject]@{ Nome = $f.Name; Percorso = $f.FullName; Cartella = $true; Byte = [long]$m[0]; File = [long]$m[1] }
+        } else {
+            $byteFile += $f.Length
+            $numFile++
+        }
+    }
+    if ($numFile -gt 0) {
+        $voci += [pscustomobject]@{ Nome = '(file in questa cartella)'; Percorso = $dir.FullName; Cartella = $false; Byte = $byteFile; File = [long]$numFile }
+    }
+    $tot = [double](($voci | Measure-Object -Property Byte -Sum).Sum)
+    foreach ($v in @($voci | Sort-Object Byte -Descending)) {
+        $pct = 0.0
+        if ($tot -gt 0) { $pct = 100.0 * $v.Byte / $tot }
+        $v | Add-Member -NotePropertyName Percentuale -NotePropertyValue $pct -PassThru
+    }
+}
+
+# Gruppi di file identici (stessa dimensione e stessa impronta SHA-256), dal più "sprecone".
+function Find-FileDoppi {
+    param([Parameter(Mandatory = $true)][string]$Percorso, [long]$MinByte = 1MB, [scriptblock]$Avanzamento)
+    Initialize-CrnDisco
+    if (-not (Test-Path -LiteralPath $Percorso -PathType Container)) { throw "La cartella «$Percorso» non esiste" }
+    $file = [CrnDisco]::ElencaFile($Percorso, [Math]::Max([long]1, $MinByte), [string[]]$script:CartelleEscluseDoppi)
+    $perDim = @($file | Group-Object -Property Length | Where-Object { $_.Count -gt 1 })
+    $gruppi = @()
+    $i = 0
+    foreach ($g in $perDim) {
+        $i++
+        if ($Avanzamento) { & $Avanzamento $i $perDim.Count }
+        Invoke-Attesa
+        $dim = [long]$g.Name
+        # Prima un confronto veloce sui primi 64 KB, poi sull'intero file
+        $parziali = @(foreach ($f in $g.Group) {
+                try { [pscustomobject]@{ F = $f; H = [CrnDisco]::Impronta($f.FullName, 65536) } } catch { }
+            })
+        foreach ($pg in @($parziali | Group-Object -Property H | Where-Object { $_.Count -gt 1 })) {
+            if ($dim -le 65536) {
+                $insiemi = @(, @($pg.Group | ForEach-Object { $_.F }))
+            } else {
+                $completi = @(foreach ($x in $pg.Group) {
+                        Invoke-Attesa
+                        try { [pscustomobject]@{ F = $x.F; H = [CrnDisco]::Impronta($x.F.FullName, 0) } } catch { }
+                    })
+                $insiemi = @(foreach ($cg in @($completi | Group-Object -Property H | Where-Object { $_.Count -gt 1 })) {
+                        , @($cg.Group | ForEach-Object { $_.F })
+                    })
+            }
+            foreach ($ins in $insiemi) {
+                $ordinati = @($ins | Sort-Object CreationTime, FullName)
+                $gruppi += [pscustomobject]@{
+                    Dimensione = $dim
+                    File       = $ordinati
+                    Sprecati   = [long]($dim * ($ordinati.Count - 1))
+                }
+            }
+        }
+    }
+    $gruppi | Sort-Object Sprecati -Descending
+}
+
+# Sposta i file nel cestino (si possono recuperare).
+function Remove-FileNelCestino {
+    param([string[]]$Percorso)
+    Add-Type -AssemblyName Microsoft.VisualBasic
+    $spostati = @()
+    $errori = @()
+    foreach ($p in $Percorso) {
+        try {
+            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p,
+                [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
+                [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin)
+            $spostati += $p
+        } catch {
+            $errori += "${p}: $($_.Exception.Message)"
+        }
+    }
+    [pscustomobject]@{ Spostati = $spostati; Errori = $errori }
+}
+
+# --- Strumenti: programmi installati ---------------------------------------------
+
+function Get-ProgrammiInstallati {
+    $chiavi = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    )
+    $visti = @{}
+    foreach ($k in $chiavi) {
+        foreach ($p in @(Get-ItemProperty -Path $k -ErrorAction SilentlyContinue)) {
+            $nome = ([string]$p.DisplayName).Trim()
+            $dis = ([string]$p.UninstallString).Trim()
+            if (-not $nome -or -not $dis) { continue }
+            if ($p.SystemComponent -eq 1 -or $p.ParentKeyName -or [string]$p.ReleaseType -match 'Update|Hotfix') { continue }
+            $chiave = "$nome|$($p.DisplayVersion)"
+            if ($visti.ContainsKey($chiave)) { continue }
+            $visti[$chiave] = $true
+            $data = $null
+            if ([string]$p.InstallDate -match '^\d{8}$') {
+                try { $data = [datetime]::ParseExact([string]$p.InstallDate, 'yyyyMMdd', [Globalization.CultureInfo]::InvariantCulture) } catch { }
+            }
+            $kb = 0.0
+            try { $kb = [double]$p.EstimatedSize } catch { }
+            [pscustomobject]@{
+                Nome        = $nome
+                Editore     = ([string]$p.Publisher).Trim()
+                Versione    = [string]$p.DisplayVersion
+                Byte        = [long]($kb * 1KB)
+                Installato  = $data
+                Disinstalla = $dis
+            }
+        }
+    }
+}
+
+# Rende eseguibile il comando di disinstallazione (alcuni programmi lo registrano senza virgolette).
+function Get-ComandoDisinstallazione {
+    param([string]$Comando)
+    $c = $Comando.Trim()
+    if ($c -match '^(?i)msiexec(\.exe)?\s') { return ($c -replace '(?i)/I\s*\{', '/X{') }
+    if ($c.StartsWith('"')) { return $c }
+    if (Test-Path -LiteralPath $c -PathType Leaf) { return "`"$c`"" }
+    if ($c -match '^(?<exe>.+?\.exe)(?<arg>\s.*)?$' -and (Test-Path -LiteralPath $Matches.exe -PathType Leaf)) {
+        return "`"$($Matches.exe)`"$($Matches.arg)"
+    }
+    $c
+}
+
+function Start-DisinstallaProgramma {
+    param([Parameter(Mandatory = $true)]$Programma)
+    $cmd = Get-ComandoDisinstallazione $Programma.Disinstalla
+    Start-Process -FilePath $env:ComSpec -ArgumentList '/c', "`"$cmd`"" -WindowStyle Hidden
+}
+
+# --- Strumenti: privacy ----------------------------------------------------------
+
+function Get-ProfiliBrowser {
+    $chromium = @(
+        @{ Nome = 'Google Chrome'; Processo = 'chrome'; Base = "$env:LOCALAPPDATA\Google\Chrome\User Data" },
+        @{ Nome = 'Microsoft Edge'; Processo = 'msedge'; Base = "$env:LOCALAPPDATA\Microsoft\Edge\User Data" },
+        @{ Nome = 'Brave'; Processo = 'brave'; Base = "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data" }
+    )
+    foreach ($b in $chromium) {
+        if (-not (Test-Path -LiteralPath $b.Base)) { continue }
+        $profili = @(Get-ChildItem -LiteralPath $b.Base -Directory -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -eq 'Default' -or $_.Name -like 'Profile *' } | ForEach-Object { $_.FullName })
+        if ($profili.Count -gt 0) { [pscustomobject]@{ Nome = $b.Nome; Processo = $b.Processo; Tipo = 'Chromium'; Profili = $profili } }
+    }
+    $ff = "$env:APPDATA\Mozilla\Firefox\Profiles"
+    if (Test-Path -LiteralPath $ff) {
+        $profili = @(Get-ChildItem -LiteralPath $ff -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+        if ($profili.Count -gt 0) { [pscustomobject]@{ Nome = 'Mozilla Firefox'; Processo = 'firefox'; Tipo = 'Firefox'; Profili = $profili } }
+    }
+}
+
+function New-VocePrivacy {
+    param([string]$Id, [string]$Nome, [string]$Descrizione, [string]$Processo, [string[]]$Percorsi = @(), [string[]]$Registro = @())
+    [pscustomobject]@{
+        Id = $Id; Nome = $Nome; Descrizione = $Descrizione; Processo = $Processo
+        Percorsi = $Percorsi; Registro = $Registro
+        Byte = (Get-DimensioneCartella -Percorso $Percorsi)
+    }
+}
+
+function Get-VociPrivacy {
+    foreach ($b in @(Get-ProfiliBrowser)) {
+        $p = $b.Profili
+        if ($b.Tipo -eq 'Chromium') {
+            $cookie = foreach ($x in $p) { foreach ($f in 'Network\Cookies', 'Network\Cookies-journal', 'Cookies', 'Cookies-journal') { Join-Path $x $f } }
+            $storia = foreach ($x in $p) { foreach ($f in 'History', 'History-journal', 'Visited Links', 'Top Sites', 'Top Sites-journal', 'Shortcuts', 'Shortcuts-journal') { Join-Path $x $f } }
+            New-VocePrivacy "$($b.Processo)-cookie" "$($b.Nome): cookie" 'Ti scollega da tutti i siti: dovrai rifare l''accesso' $b.Processo @($cookie)
+            New-VocePrivacy "$($b.Processo)-cronologia" "$($b.Nome): cronologia" 'Siti visitati e pagine suggerite (preferiti e password restano)' $b.Processo @($storia)
+        } else {
+            $cookie = foreach ($x in $p) { foreach ($f in 'cookies.sqlite', 'cookies.sqlite-wal', 'cookies.sqlite-shm') { Join-Path $x $f } }
+            $moduli = foreach ($x in $p) { foreach ($f in 'formhistory.sqlite', 'formhistory.sqlite-wal', 'formhistory.sqlite-shm') { Join-Path $x $f } }
+            New-VocePrivacy 'firefox-cookie' "$($b.Nome): cookie" 'Ti scollega da tutti i siti: dovrai rifare l''accesso' $b.Processo @($cookie)
+            New-VocePrivacy 'firefox-moduli' "$($b.Nome): testo dei moduli" 'Testi suggeriti nei campi dei siti (la cronologia di Firefox si cancella da Firefox con Ctrl+Maiusc+Canc)' $b.Processo @($moduli)
+        }
+    }
+    New-VocePrivacy 'win-recenti' 'Windows: file recenti' 'Elenco dei file aperti di recente in Esplora file e nelle jump list (i file restano)' '' @("$env:APPDATA\Microsoft\Windows\Recent")
+    New-VocePrivacy 'win-esegui' 'Windows: cronologia di «Esegui»' 'Comandi digitati nella finestra Esegui (Win+R)' '' @() @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU')
+    New-VocePrivacy 'win-ricerche' 'Windows: ricerche in Esplora file' 'Parole cercate nella casella di ricerca di Esplora file' '' @() @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\WordWheelQuery')
+}
+
+function Clear-VocePrivacy {
+    param([Parameter(Mandatory = $true)]$Voce)
+    if ($Voce.Processo -and (Get-Process -Name $Voce.Processo -ErrorAction SilentlyContinue)) {
+        return [pscustomobject]@{ Riuscito = $false; Messaggio = "$($Voce.Nome): chiudi il browser e riprova"; Byte = [long]0 }
+    }
+    $e = Remove-ContenutoCartella -Percorso $Voce.Percorsi
+    foreach ($k in $Voce.Registro) {
+        if (Test-Path -LiteralPath $k) {
+            Remove-Item -LiteralPath $k -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -Path $k -Force | Out-Null
+        }
+    }
+    [pscustomobject]@{ Riuscito = ($e.Saltati -eq 0); Messaggio = "$($Voce.Nome): $(Format-EsitoPulizia $e 'cancellati')"; Byte = $e.Byte }
+}
+
+# --- Strumenti: pulizia programmata ---------------------------------------------
+
+$script:NomeAttivita = 'CRN Manutenzione PC - pulizia settimanale'
+$script:InterventiProgrammabili = @('temp', 'cestino', 'browser', 'dump', 'wucache')
+$script:GiorniSettimana = @(
+    @{ Nome = 'lunedì'; Valore = 'Monday'; Bit = 2 }, @{ Nome = 'martedì'; Valore = 'Tuesday'; Bit = 4 },
+    @{ Nome = 'mercoledì'; Valore = 'Wednesday'; Bit = 8 }, @{ Nome = 'giovedì'; Valore = 'Thursday'; Bit = 16 },
+    @{ Nome = 'venerdì'; Valore = 'Friday'; Bit = 32 }, @{ Nome = 'sabato'; Valore = 'Saturday'; Bit = 64 },
+    @{ Nome = 'domenica'; Valore = 'Sunday'; Bit = 1 }
+)
+
+function Get-GiorniSettimana { $script:GiorniSettimana }
+function Get-InterventiProgrammabili { $script:InterventiProgrammabili }
+
+function Get-PercorsoLog {
+    Join-Path $env:LOCALAPPDATA 'CRN Manutenzione PC\pulizia.log'
+}
+
+function Write-LogManutenzione {
+    param([string]$Percorso, [string]$Testo)
+    $dir = Split-Path -Parent $Percorso
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    Add-Content -LiteralPath $Percorso -Value "$((Get-Date).ToString('yyyy-MM-dd HH:mm'))  $Testo" -Encoding UTF8
+}
+
+function Get-PuliziaProgrammata {
+    $t = Get-ScheduledTask -TaskName $script:NomeAttivita -ErrorAction SilentlyContinue
+    if (-not $t) { return $null }
+    $info = $t | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue
+    $trig = @($t.Triggers)[0]
+    $arg = [string](@($t.Actions)[0].Arguments)
+    $interventi = @()
+    if ($arg -match '-Esegui\s+(\S+)') { $interventi = @($Matches[1] -split ',') }
+    $giorno = ''
+    $ora = ''
+    if ($trig) {
+        $maschera = [int]$trig.DaysOfWeek
+        $giorno = (@($script:GiorniSettimana | Where-Object { $maschera -band $_.Bit } | ForEach-Object { $_.Nome })) -join ', '
+        try { $ora = ([datetime]$trig.StartBoundary).ToString('HH:mm') } catch { }
+    }
+    $ultima = $null
+    if ($info -and $info.LastRunTime -and $info.LastRunTime.Year -gt 2000) { $ultima = $info.LastRunTime }
+    $prossima = $null
+    if ($info -and $info.NextRunTime) { $prossima = $info.NextRunTime }
+    [pscustomobject]@{
+        Attiva           = ([string]$t.State -ne 'Disabled')
+        Giorno           = $giorno
+        Ora              = $ora
+        Interventi       = $interventi
+        UltimaEsecuzione = $ultima
+        Prossima         = $prossima
+    }
+}
+
+function Set-PuliziaProgrammata {
+    param(
+        [ValidateSet('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')][string]$Giorno = 'Sunday',
+        [string]$Ora = '12:00',
+        [Parameter(Mandatory = $true)][string[]]$Interventi,
+        [Parameter(Mandatory = $true)][string]$Script
+    )
+    $non = @($Interventi | Where-Object { $script:InterventiProgrammabili -notcontains $_ })
+    if ($non.Count -gt 0) { throw "Interventi non programmabili: $($non -join ', ')" }
+    if ($Interventi.Count -eq 0) { throw 'Scegli almeno un intervento' }
+    if (-not (Test-Path -LiteralPath $Script -PathType Leaf)) { throw "Programma non trovato: $Script" }
+    $alle = [datetime]::ParseExact($Ora, 'HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+    $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Script`" -Esegui $($Interventi -join ',') -Log `"$(Get-PercorsoLog)`""
+    $azione = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg
+    $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $Giorno -At $alle
+    $livello = 'Limited'
+    if (Test-Amministratore) { $livello = 'Highest' }
+    $utente = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $principale = New-ScheduledTaskPrincipal -UserId $utente -LogonType Interactive -RunLevel $livello
+    $imp = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+    Register-ScheduledTask -TaskName $script:NomeAttivita -Action $azione -Trigger $trigger -Principal $principale -Settings $imp `
+        -Description 'Pulizia automatica creata da CRN Manutenzione PC' -Force | Out-Null
+    Get-PuliziaProgrammata
+}
+
+function Remove-PuliziaProgrammata {
+    if (Get-ScheduledTask -TaskName $script:NomeAttivita -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskName $script:NomeAttivita -Confirm:$false
+    }
+}
+
+function Start-PuliziaProgrammata {
+    Start-ScheduledTask -TaskName $script:NomeAttivita
 }
 
 Export-ModuleMember -Function *

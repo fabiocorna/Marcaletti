@@ -45,6 +45,25 @@ Il primo intervento dell'elenco crea un **punto di ripristino**, così si può s
 | Prestazioni | Programmi all'avvio | Apre le impostazioni delle app di avvio |
 | Rete | Connessione a Internet | Svuota la cache DNS |
 
+## Gli strumenti (schede in alto)
+
+- **Analisi disco**: mostra quanto occupa ogni cartella di un disco, dalla più grande.
+  Doppio clic su una cartella per entrarci e scoprire dove finisce lo spazio.
+- **File doppi**: trova i file identici (stesso contenuto, verificato con SHA-256) in una
+  cartella, ad esempio foto e video copiati due volte. «Seleziona le copie» tiene il file più
+  vecchio di ogni gruppo; i file selezionati vanno **nel cestino**, quindi si possono recuperare.
+  Le cartelle di Windows, dei programmi e `AppData` vengono sempre saltate.
+- **Programmi**: elenco dei programmi installati con editore, versione, dimensione e data,
+  ordinabile e con ricerca; il pulsante **Disinstalla** avvia il programma di disinstallazione.
+- **Privacy**: cancella a scelta cookie e cronologia di Chrome, Edge, Brave e Firefox, l'elenco
+  dei file recenti, la cronologia di «Esegui» e delle ricerche in Esplora file.
+  Nulla è selezionato in partenza; i browser aperti vengono saltati.
+- **Pulizia automatica**: ogni settimana, nel giorno e all'ora scelti, esegue in silenzio le
+  pulizie selezionate (file temporanei, cache dei browser, rapporti errori, file degli
+  aggiornamenti, cestino). L'esito finisce nel registro
+  `%LOCALAPPDATA%\CRN Manutenzione PC\pulizia.log`. Il programma deve restare nella cartella
+  da cui è stata attivata.
+
 Il programma **non** tocca documenti, foto, password, cronologia e impostazioni, **non** "pulisce
 il registro" e **non** disattiva servizi di Windows: sono operazioni che di solito fanno più danni
 che benefici.
@@ -64,6 +83,7 @@ powershell -ExecutionPolicy Bypass -File CRNManutenzione.ps1 -Esegui temp,cestin
 
 - `CRNManutenzione.psm1`: tutti i controlli e gli interventi (`Get-ControlliPC`).
 - `CRNManutenzione.ps1`: finestra del programma e riga di comando.
+- `CRNStrumenti.ps1`: schede degli strumenti (analisi disco, file doppi, programmi, privacy, pulizia automatica).
 - `tests/Test-Manutenzione.ps1`: collaudo, eseguito da GitHub Actions su Windows con
   PowerShell 5.1 e 7 (workflow `pc-manutenzione-windows.yml`).
 

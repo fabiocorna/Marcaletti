@@ -9,6 +9,7 @@
       -Analizza [-Report file.html]   analizza il PC (sola lettura) e salva il report
       -Esegui temp,cestino,...        esegue gli interventi indicati
       -Escludi winupdate,winget       salta alcuni controlli durante l'analisi
+      -Log file.log                   aggiunge al file l'esito degli interventi (pulizia automatica)
 #>
 [CmdletBinding()]
 param(
@@ -17,7 +18,8 @@ param(
     [string[]]$Escludi,
     [string]$Report,
     [switch]$Elenco,
-    [string]$Collaudo
+    [string]$Collaudo,
+    [string]$Log
 )
 
 $ErrorActionPreference = 'Continue'
@@ -55,6 +57,7 @@ if ($Analizza -or $Esegui.Count -gt 0) {
             $colore = 'Green'
             if (-not $r.Riuscito) { $colore = 'Yellow' }
             Write-Host "  $($r.Messaggio)" -ForegroundColor $colore
+            if ($Log) { Write-LogManutenzione -Percorso $Log -Testo "$($c.Nome): $($r.Messaggio)" }
         }
     }
     if ($Analizza) {
@@ -224,11 +227,19 @@ $prog.Width = 220
 [void]$stato.Items.Add($lblStato)
 [void]$stato.Items.Add($prog)
 
-$form.Controls.Add($lv)
-$form.Controls.Add($barra)
+$schede = New-Object System.Windows.Forms.TabControl
+$schede.Dock = 'Fill'
+$schede.Padding = New-Object System.Drawing.Point(14, 5)
+$tabControllo = New-Object System.Windows.Forms.TabPage 'Controllo PC'
+$tabControllo.Controls.Add($lv)
+$tabControllo.Controls.Add($barra)
+$lv.BringToFront()
+[void]$schede.TabPages.Add($tabControllo)
+
+$form.Controls.Add($schede)
 $form.Controls.Add($stato)
 $form.Controls.Add($intest)
-$lv.BringToFront()
+$schede.BringToFront()
 
 function Update-Riga($r) {
     $item = $script:righe[$r.Id]
@@ -243,6 +254,7 @@ function Set-Occupato([bool]$Valore) {
     $script:occupato = $Valore
     foreach ($b in @($btnAnalizza, $btnTutti, $btnNessuno, $btnReport, $btnAdmin)) { $b.Enabled = -not $Valore }
     $btnEsegui.Enabled = (-not $Valore) -and ($script:risultati.Count -gt 0)
+    foreach ($t in $schede.TabPages) { foreach ($c in $t.Controls) { $c.Enabled = -not $Valore } }
     if ($Valore) { $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor } else { $form.Cursor = [System.Windows.Forms.Cursors]::Default }
 }
 
@@ -343,6 +355,9 @@ function Save-Report {
     Start-Process $dlg.FileName
 }
 
+# Schede degli strumenti (analisi disco, file doppi, programmi, privacy, pulizia automatica)
+. (Join-Path $cartella 'CRNStrumenti.ps1')
+
 $btnAnalizza.Add_Click({ Start-Analisi })
 $btnEsegui.Add_Click({ Start-Interventi })
 $btnReport.Add_Click({ Save-Report })
@@ -376,6 +391,15 @@ if ($Collaudo) {
                 Start-Analisi -Escludi @('winupdate', 'winget')
                 $ris = @($script:risultati.Values)
                 Export-ReportManutenzione -Risultati $ris -Percorso $Collaudo -Info $script:info
+                # Ogni scheda degli strumenti
+                foreach ($t in $schede.TabPages) { $schede.SelectedTab = $t; [System.Windows.Forms.Application]::DoEvents() }
+                Start-AnalisiDisco $env:TEMP
+                if ($lvDisco.Items.Count -eq 0 -and $lblDisco.Text -like 'Errore*') { throw "Analisi disco: $($lblDisco.Text)" }
+                Start-RicercaDoppi $env:TEMP
+                if ($lblDoppi.Text -like 'Errore*') { throw "File doppi: $($lblDoppi.Text)" }
+                if ($lvProg.Items.Count -eq 0) { throw 'Nessun programma installato letto' }
+                if ($lvPrivacy.Items.Count -eq 0) { throw 'Nessuna voce di privacy' }
+                Add-Content -LiteralPath $Collaudo -Value "<!-- disco: $($lvDisco.Items.Count) voci; programmi: $($lvProg.Items.Count); privacy: $($lvPrivacy.Items.Count) -->" -Encoding UTF8
             } catch {
                 Set-Content -LiteralPath "$Collaudo.errore.txt" -Value $_.ToString() -Encoding UTF8
             }
