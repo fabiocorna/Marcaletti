@@ -393,12 +393,23 @@ if ($Collaudo) {
                 Export-ReportManutenzione -Risultati $ris -Percorso $Collaudo -Info $script:info
                 # Ogni scheda degli strumenti
                 foreach ($t in $schede.TabPages) { $schede.SelectedTab = $t; [System.Windows.Forms.Application]::DoEvents() }
-                Start-AnalisiDisco $env:TEMP
+                Start-AnalisiDisco "$env:SystemDrive\Users"
                 if ($lvDisco.Items.Count -eq 0 -and $lblDisco.Text -like 'Errore*') { throw "Analisi disco: $($lblDisco.Text)" }
                 Start-RicercaDoppi $env:TEMP
                 if ($lblDoppi.Text -like 'Errore*') { throw "File doppi: $($lblDoppi.Text)" }
                 if ($lvProg.Items.Count -eq 0) { throw 'Nessun programma installato letto' }
                 if ($lvPrivacy.Items.Count -eq 0) { throw 'Nessuna voce di privacy' }
+                # Foto di ogni scheda per il controllo visivo
+                $n = 0
+                foreach ($t in $schede.TabPages) {
+                    $n++
+                    $schede.SelectedTab = $t
+                    for ($k = 0; $k -lt 5; $k++) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 100 }
+                    $bmp = New-Object System.Drawing.Bitmap($form.Width, $form.Height)
+                    $form.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle(0, 0, $form.Width, $form.Height)))
+                    $bmp.Save("$Collaudo-scheda$n.png", [System.Drawing.Imaging.ImageFormat]::Png)
+                    $bmp.Dispose()
+                }
                 Add-Content -LiteralPath $Collaudo -Value "<!-- disco: $($lvDisco.Items.Count) voci; programmi: $($lvProg.Items.Count); privacy: $($lvPrivacy.Items.Count) -->" -Encoding UTF8
             } catch {
                 Set-Content -LiteralPath "$Collaudo.errore.txt" -Value $_.ToString() -Encoding UTF8

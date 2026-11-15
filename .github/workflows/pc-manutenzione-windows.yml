@@ -45,6 +45,12 @@ jobs:
           if (-not (Test-Path $out)) { throw 'Report non creato' }
           Write-Host "Report creato: $((Get-Item $out).Length) byte"
 
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: schermate
+          path: ${{ runner.temp }}/collaudo.html-scheda*.png
+
       - name: Pacchetto
         id: pkg
         shell: powershell
